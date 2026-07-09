@@ -1,0 +1,47 @@
+# Client-site / pilot profile (build-plan Phase 1, exit drill 7: the artifact test).
+# Infrastructure services are real today; app services are enabled by tickets 003+.
+# Rule (CLAUDE.md #8): everything here must run inside the client's network.
+name: agentic-platform
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: platform
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
+      POSTGRES_DB: platform
+    volumes: [ "pgdata:/var/lib/postgresql/data" ]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U platform"]
+      interval: 5s
+      retries: 10
+
+  temporal:
+    image: temporalio/auto-setup:1.25
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      DB: postgres12
+      DB_PORT: "5432"
+      POSTGRES_USER: platform
+      POSTGRES_PWD: ${POSTGRES_PASSWORD:?set in .env}
+      POSTGRES_SEEDS: postgres
+    ports: [ "7233:7233" ]
+
+  temporal-ui:
+    image: temporalio/ui:2.31.2
+    depends_on: [ temporal ]
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+    ports: [ "8080:8080" ]
+
+  # --- enabled by ticket 003 (worker) and Phase 1 workstream (c) (console) ---
+  # worker:
+  #   build: { context: .., dockerfile: apps/worker/Dockerfile }
+  #   depends_on: [ temporal ]
+  #   env_file: [ ../.env ]
+  # console:
+  #   build: { context: .., dockerfile: apps/console/Dockerfile }
+  #   ports: [ "3000:3000" ]
+
+volumes:
+  pgdata:
