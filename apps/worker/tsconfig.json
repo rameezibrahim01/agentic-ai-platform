@@ -8,6 +8,7 @@
   "references": [
     { "path": "../../packages/core" },
     { "path": "../../packages/storage" },
-    { "path": "../../packages/model-gateway" }
+    { "path": "../../packages/model-gateway" },
+    { "path": "../../packages/telemetry" }
   ]
 }
