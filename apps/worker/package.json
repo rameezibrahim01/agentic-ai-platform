@@ -8,8 +8,11 @@
     "@opentelemetry/api": "^1.9.1",
     "@platform/core": "workspace:*",
     "@platform/model-gateway": "workspace:*",
+    "@platform/policy": "workspace:*",
     "@platform/storage": "workspace:*",
     "@platform/telemetry": "workspace:*",
+    "@platform/tool-gateway": "workspace:*",
+    "@platform/tool-registry": "workspace:*",
     "@temporalio/activity": "^1.20.2",
     "@temporalio/client": "^1.20.2",
     "@temporalio/worker": "^1.20.2",
@@ -19,6 +22,7 @@
   "devDependencies": {
     "@opentelemetry/sdk-trace-base": "^2.9.0",
     "@temporalio/testing": "^1.20.2",
-    "vitest": "^2.1.9"
+    "vitest": "^2.1.9",
+    "zod": "^3.25.76"
   }
 }

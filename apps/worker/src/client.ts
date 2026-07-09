@@ -1,6 +1,6 @@
 import type { Client, WorkflowHandle } from "@temporalio/client";
-import type { AgentRunInput, AgentRunResult } from "./workflows.js";
-import { agentRun } from "./workflows.js";
+import type { AgentRunInput, AgentRunResult, ApprovalDecision } from "./workflows.js";
+import { agentRun, approvalDecisionSignal } from "./workflows.js";
 
 export const TASK_QUEUE = "agent-runs";
 
@@ -17,4 +17,13 @@ export async function startAgentRun(
   });
 }
 
-export type { AgentRunInput, AgentRunResult };
+/** Approve or deny a run's pending intent (ticket 017). workflowId = runId. */
+export async function sendApprovalDecision(
+  client: Client,
+  runId: string,
+  decision: ApprovalDecision,
+): Promise<void> {
+  await client.workflow.getHandle(runId).signal(approvalDecisionSignal, decision);
+}
+
+export type { AgentRunInput, AgentRunResult, ApprovalDecision };

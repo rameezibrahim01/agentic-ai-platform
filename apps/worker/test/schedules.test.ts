@@ -5,9 +5,9 @@ import { TestWorkflowEnvironment } from "@temporalio/testing";
 import { Worker } from "@temporalio/worker";
 import { ScheduleOverlapPolicy } from "@temporalio/client";
 import { replay } from "@platform/core";
-import { InMemoryEventStore } from "@platform/storage";
-import { createGateway, FakeProvider, fakeMessage, type FakeBehavior } from "@platform/model-gateway";
-import { createActivities, type Activities } from "../src/activities.js";
+import { fakeMessage } from "@platform/model-gateway";
+import { type Activities } from "../src/activities.js";
+import { makeWorld } from "./helpers.js";
 import {
   createAgentSchedule,
   deleteAgentSchedule,
@@ -48,16 +48,7 @@ afterAll(async () => {
 // Far-future calendar spec so occurrences only happen via trigger().
 const NEVER_CRON = "59 23 31 12 *";
 
-function makeDeps(script: readonly FakeBehavior[]) {
-  const store = new InMemoryEventStore();
-  const gateway = createGateway({
-    env: "test",
-    allowlist: ["fake-model"],
-    pricing: { "fake-model": { inputPerMTokUsd: 3, outputPerMTokUsd: 15 } },
-    providers: [{ name: "fake", provider: new FakeProvider(script) }],
-  });
-  return { store, activities: createActivities({ store, gateway }) };
-}
+
 
 const template = {
   agent: "scheduled-agent@v1",
@@ -106,7 +97,7 @@ describe("thin schedules (ticket 010)", () => {
       if (!env) return ctx.skip();
       const scheduleId = "sched-trigger";
       const taskQueue = "tq-sched-trigger";
-      const { store, activities } = makeDeps([
+      const { store, activities } = makeWorld([
         { kind: "respond", result: fakeMessage("morning check done") },
       ]);
       const worker = await Worker.create({
@@ -161,7 +152,7 @@ describe("thin schedules (ticket 010)", () => {
       if (!env) return ctx.skip();
       const scheduleId = "sched-overlap";
       const taskQueue = "tq-sched-overlap";
-      const { store, activities: real } = makeDeps([
+      const { store, activities: real } = makeWorld([
         { kind: "respond", result: fakeMessage("slow run done") },
       ]);
 

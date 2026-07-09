@@ -9,6 +9,9 @@
     { "path": "../../packages/core" },
     { "path": "../../packages/storage" },
     { "path": "../../packages/model-gateway" },
-    { "path": "../../packages/telemetry" }
+    { "path": "../../packages/telemetry" },
+    { "path": "../../packages/policy" },
+    { "path": "../../packages/tool-registry" },
+    { "path": "../../packages/tool-gateway" }
   ]
 }

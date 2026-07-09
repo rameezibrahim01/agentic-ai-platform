@@ -1,20 +1,22 @@
 import type { Tracer } from "@opentelemetry/api";
-import type { BudgetExceededReason, RiskTier, RunEvent } from "@platform/core";
+import type { BudgetExceededReason, RunEvent } from "@platform/core";
 import type { EventStore } from "@platform/storage";
 import type { ModelGateway, Usage } from "@platform/model-gateway";
+import type { ToolGateway } from "@platform/tool-gateway";
 import { emitRunTrace } from "@platform/telemetry";
 import { idempotentAppend } from "./append.js";
 
 // Activities own all I/O and timestamps (determinism rule from ticket 003).
-// Since ticket 005 the model path goes through @platform/model-gateway —
-// gateway usage feeds token/cost totals via the reducer, no separate
-// accounting (CLAUDE.md #7). Tests script behavior with FakeProvider.
+// The model path goes through @platform/model-gateway (005); since ticket 017
+// every tool intent goes through @platform/tool-gateway — grant, schema,
+// egress, policy, secrets, digests (CLAUDE.md #2). Timestamps are produced
+// HERE, never in workflow code.
 
 export interface WorkerDeps {
   store: EventStore;
   gateway: ModelGateway;
-  /** Optional (ticket 008): terminal activities emit the run's trace, derived
-   *  from the event log. Omitted → tracing is skipped entirely. */
+  tools: ToolGateway;
+  /** Optional (ticket 008): terminal activities emit the run's trace. */
   tracer?: Tracer;
 }
 
@@ -39,18 +41,43 @@ export type CallModelResponse =
       version: number;
       tool: string;
       args: Record<string, unknown>;
-      risk: RiskTier;
       usage: Usage;
       costUsd: number;
     }
   | { kind: "message"; version: number; content: string; usage: Usage; costUsd: number };
 
-export interface ExecuteToolRequest {
+export interface ResolveIntentRequest {
   runId: string;
   expectedVersion: number;
+  agent: string;
+  principal: string;
+  /** "name@version"; a bare name defaults to v1. */
   tool: string;
   args: Record<string, unknown>;
-  risk: RiskTier;
+  approverGroup: string;
+  approvalTtlMs: number;
+}
+
+export type ResolveIntentResponse =
+  | { kind: "executed"; version: number }
+  | { kind: "approval_required"; version: number; expiresAt: number }
+  | { kind: "refused"; version: number; reason: string };
+
+export interface ApprovalDecisionRequest {
+  runId: string;
+  expectedVersion: number;
+  granted: boolean;
+  by: string;
+  comment?: string;
+}
+
+export interface ExecuteApprovedRequest {
+  runId: string;
+  expectedVersion: number;
+  agent: string;
+  principal: string;
+  tool: string;
+  args: Record<string, unknown>;
 }
 
 export interface CompleteRunRequest {
@@ -72,7 +99,13 @@ function fail(error: string): never {
   throw new Error(error);
 }
 
-export function createActivities({ store, gateway, tracer }: WorkerDeps) {
+export function parseToolId(tool: string): { name: string; version: string } {
+  const at = tool.lastIndexOf("@");
+  if (at <= 0) return { name: tool, version: "v1" };
+  return { name: tool.slice(0, at), version: tool.slice(at + 1) };
+}
+
+export function createActivities({ store, gateway, tools, tracer }: WorkerDeps) {
   // One trace per run, emitted once when the run reaches a terminal event
   // (deduped retries do not re-emit).
   async function emitTerminalTrace(runId: string): Promise<void> {
@@ -124,38 +157,125 @@ export function createActivities({ store, gateway, tracer }: WorkerDeps) {
             version: result.version,
             tool: completion.intent.tool,
             args: completion.intent.args,
-            risk: completion.intent.risk,
             usage: completion.usage,
             costUsd: completion.costUsd,
           };
     },
 
-    async executeTool(request: ExecuteToolRequest): Promise<{ version: number }> {
-      const { runId, expectedVersion, tool, args, risk } = request;
+    /** Drive the tool gateway; append its audit payloads. All outcomes are auditable. */
+    async resolveIntent(request: ResolveIntentRequest): Promise<ResolveIntentResponse> {
+      const { runId, expectedVersion } = request;
+      const ref = parseToolId(request.tool);
+      const outcome = await tools.handleIntent({
+        runId,
+        agent: request.agent,
+        principal: request.principal,
+        intent: { tool: ref.name, version: ref.version, args: request.args },
+      });
       const at = Date.now();
-      // One atomic append: intent → policy(allow) → executed, the read-only
-      // Phase 1 shape. The real policy engine arrives in Phase 2.
-      const events: RunEvent[] = [
-        { type: "ToolIntentEmitted", runId, seq: expectedVersion, at, tool, args, risk },
-        {
-          type: "PolicyEvaluated",
-          runId,
-          seq: expectedVersion + 1,
-          at,
-          decision: "allow",
-          rule: "phase1-read-only-auto-allow",
-        },
-        {
-          type: "ToolExecuted",
-          runId,
-          seq: expectedVersion + 2,
-          at,
-          gatewayReqId: `stub-${runId}-${expectedVersion}`,
-          resultDigest: `digest-${expectedVersion}`,
-          latencyMs: 1,
-        },
-      ];
+      const base = (seq: number) => ({ runId, seq, at });
+
+      if (outcome.kind === "executed") {
+        const events: RunEvent[] = [
+          { type: "ToolIntentEmitted", ...base(expectedVersion), ...outcome.audit.intent },
+          { type: "PolicyEvaluated", ...base(expectedVersion + 1), ...outcome.audit.policy },
+          { type: "ToolExecuted", ...base(expectedVersion + 2), ...outcome.audit.executed },
+        ];
+        const result = await idempotentAppend(store, runId, expectedVersion, events);
+        return result.ok ? { kind: "executed", version: result.version } : fail(result.error);
+      }
+
+      if (outcome.kind === "approval_required") {
+        const expiresAt = at + request.approvalTtlMs;
+        const events: RunEvent[] = [
+          { type: "ToolIntentEmitted", ...base(expectedVersion), ...outcome.audit.intent },
+          { type: "PolicyEvaluated", ...base(expectedVersion + 1), ...outcome.audit.policy },
+          {
+            type: "ApprovalRequested",
+            ...base(expectedVersion + 2),
+            approverGroup: request.approverGroup,
+            expiresAt,
+          },
+        ];
+        const result = await idempotentAppend(store, runId, expectedVersion, events);
+        return result.ok
+          ? { kind: "approval_required", version: result.version, expiresAt }
+          : fail(result.error);
+      }
+
+      // refused — the attempt is audited. Pre/at-policy refusals carry a deny
+      // decision (reducer clears the intent); post-policy failures carry the
+      // allow decision followed by ToolFailed.
+      const events: RunEvent[] = [];
+      let seq = expectedVersion;
+      if (outcome.audit.intent) {
+        events.push({ type: "ToolIntentEmitted", ...base(seq++), ...outcome.audit.intent });
+      }
+      if (outcome.audit.policy) {
+        events.push({ type: "PolicyEvaluated", ...base(seq++), ...outcome.audit.policy });
+        if (outcome.audit.policy.decision === "allow") {
+          events.push({ type: "ToolFailed", ...base(seq++), ...outcome.audit.failed });
+        }
+      }
       const result = await idempotentAppend(store, runId, expectedVersion, events);
+      return result.ok
+        ? { kind: "refused", version: result.version, reason: outcome.reason.code }
+        : fail(result.error);
+    },
+
+    async recordApprovalDecision(request: ApprovalDecisionRequest): Promise<{ version: number }> {
+      const event: RunEvent = request.granted
+        ? {
+            type: "ApprovalGranted",
+            runId: request.runId,
+            seq: request.expectedVersion,
+            at: Date.now(),
+            by: request.by,
+            ...(request.comment !== undefined ? { comment: request.comment } : {}),
+          }
+        : {
+            type: "ApprovalDenied",
+            runId: request.runId,
+            seq: request.expectedVersion,
+            at: Date.now(),
+            by: request.by,
+            ...(request.comment !== undefined ? { comment: request.comment } : {}),
+          };
+      const result = await idempotentAppend(store, request.runId, request.expectedVersion, [event]);
+      return result.ok ? { version: result.version } : fail(result.error);
+    },
+
+    /** Post-approval execution: policy already decided by a human; grant/schema/egress still enforced. */
+    async executeApprovedIntent(request: ExecuteApprovedRequest): Promise<{ version: number }> {
+      const ref = parseToolId(request.tool);
+      const outcome = await tools.executeApproved({
+        runId: request.runId,
+        agent: request.agent,
+        principal: request.principal,
+        intent: { tool: ref.name, version: ref.version, args: request.args },
+      });
+      const at = Date.now();
+      const event: RunEvent =
+        outcome.kind === "executed"
+          ? {
+              type: "ToolExecuted",
+              runId: request.runId,
+              seq: request.expectedVersion,
+              at,
+              ...outcome.audit.executed,
+            }
+          : {
+              type: "ToolFailed",
+              runId: request.runId,
+              seq: request.expectedVersion,
+              at,
+              error:
+                outcome.kind === "refused"
+                  ? outcome.audit.failed.error
+                  : "approval flow returned an unexpected outcome",
+              retryable: false,
+            };
+      const result = await idempotentAppend(store, request.runId, request.expectedVersion, [event]);
       return result.ok ? { version: result.version } : fail(result.error);
     },
 

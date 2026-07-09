@@ -3,6 +3,9 @@ import { NativeConnection, Worker } from "@temporalio/worker";
 import { createPostgresEventStore, InMemoryEventStore } from "@platform/storage";
 import type { EventStore } from "@platform/storage";
 import { createGateway, FakeProvider, fakeMessage } from "@platform/model-gateway";
+import { DEFAULT_RULES } from "@platform/policy";
+import { ToolRegistry } from "@platform/tool-registry";
+import { createToolGateway } from "@platform/tool-gateway";
 import { createActivities } from "./activities.js";
 import { TASK_QUEUE } from "./client.js";
 
@@ -48,6 +51,17 @@ export async function runWorker(): Promise<void> {
     ],
   });
 
+  // no real tools registered yet: every intent is refused-and-audited until
+  // contracts, grants, and executors are configured (Phase 2 rollout)
+  const tools = createToolGateway({
+    registry: new ToolRegistry(),
+    grants: [],
+    rules: DEFAULT_RULES,
+    executors: [],
+    egressAllowlist: [],
+    env: process.env["PLATFORM_ENV"] ?? "dev",
+  });
+
   const connection = await NativeConnection.connect({ address });
   try {
     const worker = await Worker.create({
@@ -55,7 +69,7 @@ export async function runWorker(): Promise<void> {
       namespace,
       taskQueue: TASK_QUEUE,
       workflowsPath,
-      activities: createActivities({ store, gateway }),
+      activities: createActivities({ store, gateway, tools }),
     });
     await worker.run();
   } finally {
