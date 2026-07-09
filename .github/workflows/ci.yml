@@ -35,4 +35,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
+      - run: pnpm --filter @platform/console build
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
       - run: pnpm test
