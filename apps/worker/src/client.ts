@@ -7,7 +7,7 @@ export const TASK_QUEUE = "agent-runs";
 /** Start a durable agent run; the workflowId is the runId, so duplicate starts dedupe. */
 export async function startAgentRun(
   client: Client,
-  input: AgentRunInput,
+  input: AgentRunInput & { runId: string },
   options?: { taskQueue?: string },
 ): Promise<WorkflowHandle<typeof agentRun>> {
   return client.workflow.start(agentRun, {

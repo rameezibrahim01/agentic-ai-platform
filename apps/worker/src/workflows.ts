@@ -3,7 +3,7 @@
 // by the workflow sandbox to be deterministic and replay-safe — which is what
 // ticket 005 means by "wall-clock uses workflow time". Real timestamps for
 // events are still produced inside activities only.
-import { proxyActivities } from "@temporalio/workflow";
+import { proxyActivities, workflowInfo } from "@temporalio/workflow";
 import { checkBudget, detectLoop } from "@platform/core";
 import type { BudgetPolicy, BudgetReason, LoopDetectionConfig, ToolIntentLike } from "@platform/core";
 import type { Activities } from "./activities.js";
@@ -19,7 +19,12 @@ const { startRun, callModel, executeTool, completeRun, recordBudgetFailure } =
   });
 
 export interface AgentRunInput {
-  runId: string;
+  /**
+   * Omitted for scheduled runs (ticket 010): the workflow adopts its
+   * workflowId — `<scheduleId>-<occurrence time>` for schedule occurrences —
+   * so every occurrence gets a deterministic, unique runId.
+   */
+  runId?: string;
   agent: string;
   principal: string;
   input: unknown;
@@ -40,7 +45,7 @@ export type AgentRunResult =
     };
 
 export async function agentRun(input: AgentRunInput): Promise<AgentRunResult> {
-  const { runId } = input;
+  const runId = input.runId ?? workflowInfo().workflowId; // deterministic API
   const budget: BudgetPolicy = input.budget ?? { maxSteps: 10 };
   const startedAt = Date.now(); // deterministic workflow time
   const usage = { stepCount: 0, tokensIn: 0, tokensOut: 0, costUsd: 0, startedAt };
