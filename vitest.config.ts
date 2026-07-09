@@ -6,6 +6,8 @@ const p = (rel: string) => fileURLToPath(new URL(rel, import.meta.url));
 export default defineConfig({
   resolve: {
     alias: {
+      // longest key first: plain "@platform/storage" would also prefix-match the subpath
+      "@platform/storage/conformance": p("./packages/storage/src/conformance.ts"),
       "@platform/core": p("./packages/core/src/index.ts"),
       "@platform/storage": p("./packages/storage/src/index.ts"),
       "@platform/model-gateway": p("./packages/model-gateway/src/index.ts"),

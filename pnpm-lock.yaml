@@ -50,6 +50,13 @@ importers:
       '@platform/core':
         specifier: workspace:*
         version: link:../core
+    devDependencies:
+      fast-check:
+        specifier: ^3.19.0
+        version: 3.23.2
+      vitest:
+        specifier: ^2.1.9
+        version: 2.1.9
 
 packages:
 
