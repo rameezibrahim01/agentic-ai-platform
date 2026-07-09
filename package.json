@@ -2,6 +2,7 @@
   "name": "agentic-platform",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@10.33.0",
   "engines": {
     "node": ">=20"
   },

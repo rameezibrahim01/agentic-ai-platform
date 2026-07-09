@@ -1,5 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // minimal self-contained server for the artifact image (ticket 011)
+  output: "standalone",
   // workspace packages ship TypeScript source; Next transpiles them
   transpilePackages: ["@platform/core", "@platform/storage"],
   webpack: (config) => {

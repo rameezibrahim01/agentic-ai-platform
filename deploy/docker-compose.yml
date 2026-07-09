@@ -34,14 +34,26 @@ services:
       TEMPORAL_ADDRESS: temporal:7233
     ports: [ "8080:8080" ]
 
-  # --- enabled by ticket 003 (worker) and Phase 1 workstream (c) (console) ---
-  # worker:
-  #   build: { context: .., dockerfile: apps/worker/Dockerfile }
-  #   depends_on: [ temporal ]
-  #   env_file: [ ../.env ]
-  # console:
-  #   build: { context: .., dockerfile: apps/console/Dockerfile }
-  #   ports: [ "3000:3000" ]
+  # --- app services (enabled by ticket 011: the artifact test) ---
+  worker:
+    build: { context: .., dockerfile: apps/worker/Dockerfile }
+    depends_on:
+      postgres: { condition: service_healthy }
+      temporal: { condition: service_started }
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_NAMESPACE: default
+      DATABASE_URL: postgres://platform:${POSTGRES_PASSWORD:?set in .env}@postgres:5432/platform
+      PLATFORM_ENV: pilot
+    restart: on-failure # temporal namespace setup can lag the port
+
+  console:
+    build: { context: .., dockerfile: apps/console/Dockerfile }
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      DATABASE_URL: postgres://platform:${POSTGRES_PASSWORD:?set in .env}@postgres:5432/platform
+    ports: [ "3000:3000" ]
 
 volumes:
   pgdata:

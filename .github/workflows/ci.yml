@@ -27,8 +27,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
-        with:
-          version: 10
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -39,3 +37,10 @@ jobs:
         env:
           NEXT_TELEMETRY_DISABLED: "1"
       - run: pnpm test
+
+  artifact:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: artifact test (build-plan exit drill 7)
+        run: ./scripts/artifact-smoke.sh
