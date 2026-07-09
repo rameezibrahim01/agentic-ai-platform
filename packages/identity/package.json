@@ -1,5 +1,5 @@
 {
-  "name": "@platform/tool-gateway",
+  "name": "@platform/identity",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -10,8 +10,6 @@
   },
   "dependencies": {
     "@platform/core": "workspace:*",
-    "@platform/identity": "workspace:*",
-    "@platform/policy": "workspace:*",
     "@platform/tool-registry": "workspace:*",
     "zod": "^3.23.8"
   },

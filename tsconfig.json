@@ -3,6 +3,7 @@
   "references": [
     { "path": "packages/auth" },
     { "path": "packages/core" },
+    { "path": "packages/identity" },
     { "path": "packages/storage" },
     { "path": "packages/model-gateway" },
     { "path": "packages/telemetry" },

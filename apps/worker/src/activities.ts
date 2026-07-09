@@ -56,6 +56,8 @@ export interface ResolveIntentRequest {
   args: Record<string, unknown>;
   approverGroup: string;
   approvalTtlMs: number;
+  /** Delegated credential, threaded untouched (ticket 019). */
+  delegation?: string;
 }
 
 export type ResolveIntentResponse =
@@ -78,6 +80,7 @@ export interface ExecuteApprovedRequest {
   principal: string;
   tool: string;
   args: Record<string, unknown>;
+  delegation?: string;
 }
 
 export interface CompleteRunRequest {
@@ -171,6 +174,7 @@ export function createActivities({ store, gateway, tools, tracer }: WorkerDeps) 
         agent: request.agent,
         principal: request.principal,
         intent: { tool: ref.name, version: ref.version, args: request.args },
+        ...(request.delegation !== undefined ? { delegation: request.delegation } : {}),
       });
       const at = Date.now();
       const base = (seq: number) => ({ runId, seq, at });
@@ -253,6 +257,7 @@ export function createActivities({ store, gateway, tools, tracer }: WorkerDeps) 
         agent: request.agent,
         principal: request.principal,
         intent: { tool: ref.name, version: ref.version, args: request.args },
+        ...(request.delegation !== undefined ? { delegation: request.delegation } : {}),
       });
       const at = Date.now();
       const event: RunEvent =

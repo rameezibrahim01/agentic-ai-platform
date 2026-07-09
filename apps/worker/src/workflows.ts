@@ -47,6 +47,8 @@ export interface AgentRunInput {
   /** Approval wait before expiry-to-deny (ticket 017). Default 1h. */
   approvalTtlMs?: number;
   approverGroup?: string;
+  /** Delegated credential for governed intents; never inspected here (ticket 019). */
+  delegation?: string;
 }
 
 export type AgentRunResult =
@@ -148,6 +150,7 @@ export async function agentRun(input: AgentRunInput): Promise<AgentRunResult> {
       args: model.args,
       approverGroup,
       approvalTtlMs,
+      ...(input.delegation !== undefined ? { delegation: input.delegation } : {}),
     });
     version = resolved.version;
 
@@ -177,6 +180,7 @@ export async function agentRun(input: AgentRunInput): Promise<AgentRunResult> {
           principal: input.principal,
           tool: model.tool,
           args: model.args,
+          ...(input.delegation !== undefined ? { delegation: input.delegation } : {}),
         });
         version = executed.version;
       }
