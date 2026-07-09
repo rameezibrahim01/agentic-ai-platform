@@ -10,9 +10,11 @@
     "./conformance": "./src/conformance.ts"
   },
   "dependencies": {
-    "@platform/core": "workspace:*"
+    "@platform/core": "workspace:*",
+    "pg": "^8.13.1"
   },
   "devDependencies": {
+    "@types/pg": "^8.11.10",
     "fast-check": "^3.19.0",
     "vitest": "^2.1.9"
   }
