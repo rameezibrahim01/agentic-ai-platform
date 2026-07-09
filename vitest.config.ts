@@ -13,6 +13,7 @@ export default defineConfig({
       "@platform/storage": p("./packages/storage/src/index.ts"),
       "@platform/model-gateway": p("./packages/model-gateway/src/index.ts"),
       "@platform/policy": p("./packages/policy/src/index.ts"),
+      "@platform/tool-gateway": p("./packages/tool-gateway/src/index.ts"),
       "@platform/tool-registry": p("./packages/tool-registry/src/index.ts"),
       "@platform/telemetry": p("./packages/telemetry/src/index.ts"),
     },
