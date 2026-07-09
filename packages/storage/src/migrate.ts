@@ -2,7 +2,13 @@ import { readdir, readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import type { Pool } from "pg";
 
-const MIGRATIONS_DIR = fileURLToPath(new URL("../migrations", import.meta.url));
+function migrationsDir(): string {
+  // Built from a variable so bundlers (webpack/turbopack) leave this as
+  // runtime code instead of trying to resolve the directory at build time.
+  // migrate() is only ever called from unbundled Node (worker, ops, tests).
+  const relative = "../migrations";
+  return fileURLToPath(new URL(relative, import.meta.url));
+}
 
 export interface AppliedMigration {
   name: string;
@@ -22,7 +28,8 @@ export async function migrate(pool: Pool): Promise<AppliedMigration[]> {
       applied_at timestamptz NOT NULL DEFAULT now()
     )
   `);
-  const files = (await readdir(MIGRATIONS_DIR)).filter((f) => f.endsWith(".sql")).sort();
+  const dir = migrationsDir();
+  const files = (await readdir(dir)).filter((f) => f.endsWith(".sql")).sort();
   const results: AppliedMigration[] = [];
   for (const name of files) {
     const client = await pool.connect();
@@ -36,7 +43,7 @@ export async function migrate(pool: Pool): Promise<AppliedMigration[]> {
         results.push({ name, applied: false });
         continue;
       }
-      const sql = await readFile(`${MIGRATIONS_DIR}/${name}`, "utf8");
+      const sql = await readFile(`${dir}/${name}`, "utf8");
       await client.query(sql);
       await client.query("INSERT INTO schema_migrations (name) VALUES ($1)", [name]);
       await client.query("COMMIT");
