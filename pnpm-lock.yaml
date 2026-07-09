@@ -66,12 +66,21 @@ importers:
       '@platform/model-gateway':
         specifier: workspace:*
         version: link:../../packages/model-gateway
+      '@platform/policy':
+        specifier: workspace:*
+        version: link:../../packages/policy
       '@platform/storage':
         specifier: workspace:*
         version: link:../../packages/storage
       '@platform/telemetry':
         specifier: workspace:*
         version: link:../../packages/telemetry
+      '@platform/tool-gateway':
+        specifier: workspace:*
+        version: link:../../packages/tool-gateway
+      '@platform/tool-registry':
+        specifier: workspace:*
+        version: link:../../packages/tool-registry
       '@temporalio/activity':
         specifier: ^1.20.2
         version: 1.20.2
@@ -97,6 +106,9 @@ importers:
       vitest:
         specifier: ^2.1.9
         version: 2.1.9(@types/node@26.1.1)(terser@5.49.0)
+      zod:
+        specifier: ^3.25.76
+        version: 3.25.76
 
   packages/auth:
     dependencies:
@@ -2795,6 +2807,14 @@ snapshots:
       chai: 5.3.3
       tinyrainbow: 1.2.0
 
+  '@vitest/mocker@2.1.9(vite@5.4.21(@types/node@20.19.43)(terser@5.49.0))':
+    dependencies:
+      '@vitest/spy': 2.1.9
+      estree-walker: 3.0.3
+      magic-string: 0.30.21
+    optionalDependencies:
+      vite: 5.4.21(@types/node@20.19.43)(terser@5.49.0)
+
   '@vitest/mocker@2.1.9(vite@5.4.21(@types/node@26.1.1)(terser@5.49.0))':
     dependencies:
       '@vitest/spy': 2.1.9
@@ -3548,7 +3568,7 @@ snapshots:
   vitest@2.1.9(@types/node@20.19.43)(terser@5.49.0):
     dependencies:
       '@vitest/expect': 2.1.9
-      '@vitest/mocker': 2.1.9(vite@5.4.21(@types/node@26.1.1)(terser@5.49.0))
+      '@vitest/mocker': 2.1.9(vite@5.4.21(@types/node@20.19.43)(terser@5.49.0))
       '@vitest/pretty-format': 2.1.9
       '@vitest/runner': 2.1.9
       '@vitest/snapshot': 2.1.9

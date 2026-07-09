@@ -114,33 +114,55 @@ export function createToolGateway(options: ToolGatewayOptions): ToolGateway {
     const ref: ToolRef = { name: request.intent.tool, version: request.intent.version };
     const toolId = refKey(ref);
 
+    // Every refusal is audit-ready: pre-policy refusals carry the intent
+    // (unknown tools audited at the most severe tier — unknown capability is
+    // assumed worst) and a synthetic deny decision `gateway:<code>`, so the
+    // engine can append a reducer-legal Intent → PolicyEvaluated(deny) pair.
+    const lookedUp = options.registry.get(ref);
+    const auditIntent: ToolIntentPayload = {
+      tool: toolId,
+      args: request.intent.args,
+      risk: lookedUp.ok ? lookedUp.contract.risk : "irreversible",
+    };
+    const gatewayDeny = (code: string): PolicyEvaluatedPayload => ({
+      decision: "deny",
+      rule: `gateway:${code}`,
+    });
+
     // (a) grant — refused no matter what the model asked for; unknown tools
     // are indistinguishable from ungranted ones to the model (no probing).
     if (!hasGrant(options.grants, request.agent, ref)) {
-      return refuse({ code: "not_granted", ref: toolId }, {});
+      return refuse(
+        { code: "not_granted", ref: toolId },
+        { intent: auditIntent, policy: gatewayDeny("not_granted") },
+      );
     }
-    const found = options.registry.get(ref);
-    if (!found.ok) {
-      return refuse({ code: "tool_not_found", ref: toolId }, {});
+    if (!lookedUp.ok) {
+      return refuse(
+        { code: "tool_not_found", ref: toolId },
+        { intent: auditIntent, policy: gatewayDeny("tool_not_found") },
+      );
     }
-    const contract = found.contract;
-    const intent: ToolIntentPayload = {
-      tool: toolId,
-      args: request.intent.args,
-      risk: contract.risk,
-    };
+    const contract = lookedUp.contract;
+    const intent = auditIntent;
 
     // (b) input validation — malformed intents never reach systems
     const input = options.registry.validateInput(ref, request.intent.args);
     if (!input.ok) {
       const issues = "issues" in input.error ? input.error.issues : [];
-      return refuse({ code: "invalid_input", issues }, { intent });
+      return refuse(
+        { code: "invalid_input", issues },
+        { intent, policy: gatewayDeny("invalid_input") },
+      );
     }
 
     // (c) egress — every declared host must be allowlisted for this env
     const blockedHosts = contract.egress.filter((h) => !options.egressAllowlist.includes(h));
     if (blockedHosts.length > 0) {
-      return refuse({ code: "egress_denied", hosts: blockedHosts }, { intent });
+      return refuse(
+        { code: "egress_denied", hosts: blockedHosts },
+        { intent, policy: gatewayDeny("egress_denied") },
+      );
     }
 
     // (d) policy — with full context; the decision and rule are recorded

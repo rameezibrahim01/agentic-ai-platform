@@ -4,47 +4,48 @@ import {
   InMemorySpanExporter,
   SimpleSpanProcessor,
 } from "@opentelemetry/sdk-trace-base";
-import { InMemoryEventStore } from "@platform/storage";
-import { createGateway, FakeProvider, fakeIntent, fakeMessage } from "@platform/model-gateway";
-import { createActivities } from "../src/activities.js";
+import { fakeIntent, fakeMessage } from "@platform/model-gateway";
+import { makeWorld, TEST_AGENT } from "./helpers.js";
 
 // Activities are plain async functions — the engine+gateway tracing path is
 // testable without Temporal. The durable-execution path is covered in
 // workflow.test.ts; span emission is identical (same terminal activities).
 
-function makeWorld() {
+function makeTracedWorld() {
   const exporter = new InMemorySpanExporter();
   const provider = new BasicTracerProvider({
     spanProcessors: [new SimpleSpanProcessor(exporter)],
   });
-  const store = new InMemoryEventStore();
-  const gateway = createGateway({
-    env: "test",
-    allowlist: ["fake-model"],
-    pricing: { "fake-model": { inputPerMTokUsd: 3, outputPerMTokUsd: 15 } },
-    providers: [
-      {
-        name: "fake",
-        provider: new FakeProvider([
-          { kind: "respond", result: fakeIntent({ tool: "crm.lookup", args: { q: 1 } }) },
-          { kind: "respond", result: fakeMessage("done") },
-        ]),
-      },
+  const world = makeWorld(
+    [
+      { kind: "respond", result: fakeIntent({ tool: "stub.lookup@v1", args: { q: 1 } }) },
+      { kind: "respond", result: fakeMessage("done") },
     ],
-  });
-  const activities = createActivities({ store, gateway, tracer: provider.getTracer("worker-test") });
-  return { exporter, store, activities };
+    { tracer: provider.getTracer("worker-test") },
+  );
+  return { exporter, ...world };
 }
+
+const intentDefaults = { approverGroup: "approvers", approvalTtlMs: 60_000 };
 
 describe("worker trace emission (ticket 008)", () => {
   it("a completed run emits one correctly shaped trace at the terminal activity", async () => {
-    const { exporter, activities } = makeWorld();
+    const { exporter, activities } = makeTracedWorld();
     const runId = "run-traced";
-    let { version } = await activities.startRun({ runId, agent: "a@v1", principal: "u", input: {} });
+    const { version } = await activities.startRun({ runId, agent: TEST_AGENT, principal: "u", input: {} });
     const model1 = await activities.callModel({ runId, expectedVersion: version, model: "fake-model", prompt: "p" });
     if (model1.kind !== "tool_intent") throw new Error("scripted intent expected");
-    version = (await activities.executeTool({ runId, expectedVersion: model1.version, tool: model1.tool, args: model1.args, risk: model1.risk })).version;
-    const model2 = await activities.callModel({ runId, expectedVersion: version, model: "fake-model", prompt: "p" });
+    const resolved = await activities.resolveIntent({
+      runId,
+      expectedVersion: model1.version,
+      agent: TEST_AGENT,
+      principal: "u",
+      tool: model1.tool,
+      args: model1.args,
+      ...intentDefaults,
+    });
+    if (resolved.kind !== "executed") throw new Error("read tool should auto-execute");
+    const model2 = await activities.callModel({ runId, expectedVersion: resolved.version, model: "fake-model", prompt: "p" });
     if (model2.kind !== "message") throw new Error("scripted message expected");
     await activities.completeRun({ runId, expectedVersion: model2.version, outcome: model2.content, totalCostUsd: 0.1, steps: 2 });
 
@@ -59,9 +60,9 @@ describe("worker trace emission (ticket 008)", () => {
   });
 
   it("a budget-terminated run emits an errored root span with the reason", async () => {
-    const { exporter, activities } = makeWorld();
+    const { exporter, activities } = makeTracedWorld();
     const runId = "run-traced-fail";
-    const { version } = await activities.startRun({ runId, agent: "a@v1", principal: "u", input: {} });
+    const { version } = await activities.startRun({ runId, agent: TEST_AGENT, principal: "u", input: {} });
     await activities.recordBudgetFailure({ runId, expectedVersion: version, reason: "LoopDetected", detail: "x3" });
 
     const root = exporter.getFinishedSpans().find((s) => s.name.startsWith("agent.run"))!;
@@ -72,16 +73,9 @@ describe("worker trace emission (ticket 008)", () => {
   });
 
   it("without a tracer, nothing is emitted and nothing breaks", async () => {
-    const store = new InMemoryEventStore();
-    const gateway = createGateway({
-      env: "test",
-      allowlist: ["fake-model"],
-      pricing: { "fake-model": { inputPerMTokUsd: 3, outputPerMTokUsd: 15 } },
-      providers: [{ name: "fake", provider: new FakeProvider([{ kind: "respond", result: fakeMessage("done") }]) }],
-    });
-    const activities = createActivities({ store, gateway }); // no tracer
+    const { activities } = makeWorld([{ kind: "respond", result: fakeMessage("done") }]); // no tracer
     const runId = "run-untraced";
-    const { version } = await activities.startRun({ runId, agent: "a@v1", principal: "u", input: {} });
+    const { version } = await activities.startRun({ runId, agent: TEST_AGENT, principal: "u", input: {} });
     const model = await activities.callModel({ runId, expectedVersion: version, model: "fake-model", prompt: "p" });
     if (model.kind !== "message") throw new Error("scripted message expected");
     const done = await activities.completeRun({ runId, expectedVersion: model.version, outcome: model.content, totalCostUsd: 0, steps: 1 });

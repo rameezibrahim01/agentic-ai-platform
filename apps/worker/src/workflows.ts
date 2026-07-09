@@ -1,29 +1,40 @@
 // Workflow code MUST stay deterministic (CLAUDE.md; ticket 003 scope 3): no
 // I/O, no randomness. Date.now() here is Temporal's workflow time — patched
-// by the workflow sandbox to be deterministic and replay-safe — which is what
-// ticket 005 means by "wall-clock uses workflow time". Real timestamps for
-// events are still produced inside activities only.
-import { proxyActivities, workflowInfo } from "@temporalio/workflow";
+// by the workflow sandbox to be deterministic and replay-safe. "Pause for
+// human" is just an event the workflow awaits (architecture §4): approval
+// waits are a signal + timer race, and expiry defaults to deny (§8).
+import { condition, defineSignal, proxyActivities, setHandler, workflowInfo } from "@temporalio/workflow";
 import { checkBudget, detectLoop } from "@platform/core";
 import type { BudgetPolicy, BudgetReason, LoopDetectionConfig, ToolIntentLike } from "@platform/core";
 import type { Activities } from "./activities.js";
 
-const { startRun, callModel, executeTool, completeRun, recordBudgetFailure } =
-  proxyActivities<Activities>({
-    startToCloseTimeout: "10 seconds",
-    retry: {
-      initialInterval: "50 milliseconds",
-      backoffCoefficient: 2,
-      maximumInterval: "2 seconds",
-    },
-  });
+const {
+  startRun,
+  callModel,
+  resolveIntent,
+  recordApprovalDecision,
+  executeApprovedIntent,
+  completeRun,
+  recordBudgetFailure,
+} = proxyActivities<Activities>({
+  startToCloseTimeout: "10 seconds",
+  retry: {
+    initialInterval: "50 milliseconds",
+    backoffCoefficient: 2,
+    maximumInterval: "2 seconds",
+  },
+});
+
+export interface ApprovalDecision {
+  granted: boolean;
+  by: string;
+  comment?: string;
+}
+
+export const approvalDecisionSignal = defineSignal<[ApprovalDecision]>("approvalDecision");
 
 export interface AgentRunInput {
-  /**
-   * Omitted for scheduled runs (ticket 010): the workflow adopts its
-   * workflowId — `<scheduleId>-<occurrence time>` for schedule occurrences —
-   * so every occurrence gets a deterministic, unique runId.
-   */
+  /** Omitted for scheduled runs: the workflow adopts its workflowId (ticket 010). */
   runId?: string;
   agent: string;
   principal: string;
@@ -33,6 +44,9 @@ export interface AgentRunInput {
   /** Engine-enforced budgets (ticket 005). Default: { maxSteps: 10 }. */
   budget?: BudgetPolicy;
   loopDetection?: LoopDetectionConfig;
+  /** Approval wait before expiry-to-deny (ticket 017). Default 1h. */
+  approvalTtlMs?: number;
+  approverGroup?: string;
 }
 
 export type AgentRunResult =
@@ -47,9 +61,16 @@ export type AgentRunResult =
 export async function agentRun(input: AgentRunInput): Promise<AgentRunResult> {
   const runId = input.runId ?? workflowInfo().workflowId; // deterministic API
   const budget: BudgetPolicy = input.budget ?? { maxSteps: 10 };
+  const approvalTtlMs = input.approvalTtlMs ?? 60 * 60 * 1000;
+  const approverGroup = input.approverGroup ?? "approvers";
   const startedAt = Date.now(); // deterministic workflow time
   const usage = { stepCount: 0, tokensIn: 0, tokensOut: 0, costUsd: 0, startedAt };
   const intents: ToolIntentLike[] = [];
+
+  let pendingDecision: ApprovalDecision | undefined;
+  setHandler(approvalDecisionSignal, (decision) => {
+    pendingDecision = decision;
+  });
 
   let { version } = await startRun({
     runId,
@@ -116,13 +137,49 @@ export async function agentRun(input: AgentRunInput): Promise<AgentRunResult> {
       };
     }
 
-    const tool = await executeTool({
+    // Every intent goes through the tool gateway; refusals are audited and
+    // the run survives (the model is told, not crashed).
+    const resolved = await resolveIntent({
       runId,
       expectedVersion: version,
+      agent: input.agent,
+      principal: input.principal,
       tool: model.tool,
       args: model.args,
-      risk: model.risk,
+      approverGroup,
+      approvalTtlMs,
     });
-    version = tool.version;
+    version = resolved.version;
+
+    if (resolved.kind === "approval_required") {
+      // pause for human: signal or expiry, whichever first; expiry = deny
+      const signalled = await condition(() => pendingDecision !== undefined, approvalTtlMs);
+      const decision: ApprovalDecision =
+        signalled && pendingDecision !== undefined
+          ? pendingDecision
+          : { granted: false, by: "system:expiry", comment: "approval expired" };
+      pendingDecision = undefined;
+
+      const recorded = await recordApprovalDecision({
+        runId,
+        expectedVersion: version,
+        granted: decision.granted,
+        by: decision.by,
+        ...(decision.comment !== undefined ? { comment: decision.comment } : {}),
+      });
+      version = recorded.version;
+
+      if (decision.granted) {
+        const executed = await executeApprovedIntent({
+          runId,
+          expectedVersion: version,
+          agent: input.agent,
+          principal: input.principal,
+          tool: model.tool,
+          args: model.args,
+        });
+        version = executed.version;
+      }
+    }
   }
 }
