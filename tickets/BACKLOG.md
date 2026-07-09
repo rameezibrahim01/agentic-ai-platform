@@ -1,16 +1,17 @@
 # Backlog — next batches
 
-## Batch 006–010 — EXPANDED into ticket files (see tickets/006…010) ✔
+## Batch 006–010 — EXPANDED into ticket files ✔ (all merged)
+## Batch 011–013 — EXPANDED into ticket files (see tickets/011…013) ✔
 
 ## Then: Phase 1 exit
-Enable worker/console images in `deploy/docker-compose.yml`; pass the artifact test (exit drill 7);
-run all Phase 1 exit drills as recorded tests/scripts. Only then open Phase 2 (tool gateway, policy,
-approvals, identity delegation, trigger subsystem) per `docs/build-plan.md`.
+With 011–013 done: run `scripts/drills/run-all.sh`, record results in `docs/drills/phase-1.md`,
+obtain the human-owned sign-offs (drill 5 usefulness; invoice reconciliation). Only then open
+Phase 2 (tool registry, tool gateway, risk tiers, policy engine, approval inbox, identity
+delegation, trigger subsystem) per `docs/build-plan.md`.
 
-## Phase 1 exit candidates (expand when 006–010 are done)
-- **011 — Worker/console Dockerfiles + compose enablement.** Uncomment the app services in
-  `deploy/docker-compose.yml`; multi-stage builds; the artifact test (exit drill 7) as a recorded script.
-- **012 — Exit-drill harness.** Phase 1 exit drills 1–4 and 6 as recorded, repeatable scripts/tests
-  against the compose profile; drill results checked into `docs/drills/`.
-- **013 — OIDC sign-in floor + RBAC roles** (build-plan Phase 1 workstream (e)): local accounts,
-  roles (admin/developer/approver/auditor/viewer) attached to the audit trail's `principal`.
+## Phase 2 seeds (expand only after the Phase 1 gate)
+- Tool registry: versioned MCP contracts, JSON-Schema both directions, risk tier per version.
+- Tool gateway: grant checks, egress allowlist, server-side secret injection, audited invocations.
+- Policy engine: allow / deny / require-approval with the rule recorded (start <10 rules).
+- Approval inbox: full intent preview, diff rendering, expiry-to-deny, batching.
+- Identity & delegation: workload identity, token exchange, standing delegation grants.
