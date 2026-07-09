@@ -143,6 +143,47 @@ export async function runTimelineView(store: EventStore, runId: string): Promise
   };
 }
 
+export interface PendingApprovalRow {
+  runId: string;
+  agent: string;
+  principal: string;
+  tool: string;
+  risk: string;
+  args: Readonly<Record<string, unknown>>;
+  approverGroup: string;
+  expiresAt: number;
+  requestedAt: number;
+}
+
+/** Runs paused awaiting a human — the inbox's rows, straight from the log (ticket 018). */
+export async function pendingApprovalsView(store: EventStore): Promise<PendingApprovalRow[]> {
+  const summaries = await store.listRuns({ status: "awaiting_approval" });
+  const rows: PendingApprovalRow[] = [];
+  for (const summary of summaries) {
+    const loaded = await store.load(summary.runId);
+    if (!loaded) continue;
+    const replayed = replay(loaded.events);
+    if (!replayed.ok) continue;
+    const { state } = replayed;
+    if (state.status !== "awaiting_approval" || !state.pendingIntent || !state.pendingApproval) {
+      continue;
+    }
+    const requested = loaded.events.findLast((e) => e.type === "ApprovalRequested");
+    rows.push({
+      runId: state.runId,
+      agent: state.agent,
+      principal: state.principal,
+      tool: state.pendingIntent.tool,
+      risk: state.pendingIntent.risk,
+      args: state.pendingIntent.args,
+      approverGroup: state.pendingApproval.approverGroup,
+      expiresAt: state.pendingApproval.expiresAt,
+      requestedAt: requested?.at ?? state.startedAt,
+    });
+  }
+  return rows;
+}
+
 /** All times are epoch-ms UTC in code; ISO-8601 UTC for display (CLAUDE.md #1). */
 export function formatUtc(epochMs: number): string {
   return new Date(epochMs).toISOString();

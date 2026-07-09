@@ -18,7 +18,9 @@ export default async function RunsPage() {
           <button type="submit">sign out</button>
         </form>
       </p>
-      <h2 style={{ fontSize: 16 }}>runs ({rows.length})</h2>
+      <h2 style={{ fontSize: 16 }}>
+        runs ({rows.length}) · <Link href="/approvals">approval inbox</Link>
+      </h2>
       <table style={{ borderCollapse: "collapse" }}>
         <thead>
           <tr>

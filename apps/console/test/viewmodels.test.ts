@@ -2,7 +2,12 @@ import { describe, expect, it } from "vitest";
 import { replay } from "@platform/core";
 import { InMemoryEventStore } from "@platform/storage";
 import { seedDemoRuns } from "../src/lib/seed";
-import { formatUtc, runListView, runTimelineView } from "../src/lib/viewmodels";
+import {
+  formatUtc,
+  pendingApprovalsView,
+  runListView,
+  runTimelineView,
+} from "../src/lib/viewmodels";
 
 async function seededStore() {
   const store = new InMemoryEventStore();
@@ -10,11 +15,41 @@ async function seededStore() {
   return store;
 }
 
+describe("pendingApprovalsView (ticket 018)", () => {
+  it("lists exactly the runs paused awaiting approval, with the full intent", async () => {
+    const store = await seededStore();
+    const rows = await pendingApprovalsView(store);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toEqual({
+      runId: "demo-awaiting-approval",
+      agent: "support-triage@v1",
+      principal: "user:demo",
+      tool: "zendesk.update_ticket@v3",
+      risk: "write",
+      args: { id: 4821, status: "solved" },
+      approverGroup: "approvers",
+      expiresAt: Date.UTC(2026, 0, 15, 15, 0, 0),
+      requestedAt: Date.UTC(2026, 0, 15, 11, 0, 0) + 920,
+    });
+  });
+
+  it("completed and failed runs never appear in the inbox", async () => {
+    const store = await seededStore();
+    const rows = await pendingApprovalsView(store);
+    expect(rows.map((r) => r.runId)).not.toContain("demo-completed");
+    expect(rows.map((r) => r.runId)).not.toContain("demo-budget-failed");
+  });
+});
+
 describe("runListView (ticket 009)", () => {
   it("rows match the reducer's state exactly", async () => {
     const store = await seededStore();
     const rows = await runListView(store);
-    expect(rows.map((r) => r.runId)).toEqual(["demo-budget-failed", "demo-completed"]);
+    expect(rows.map((r) => r.runId)).toEqual([
+      "demo-awaiting-approval",
+      "demo-budget-failed",
+      "demo-completed",
+    ]);
 
     for (const row of rows) {
       const loaded = await store.load(row.runId);

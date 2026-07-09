@@ -10,11 +10,12 @@ export const ROLES = [
 
 export type Role = (typeof ROLES)[number];
 
-export type Action = "view_runs" | "manage_platform";
+export type Action = "view_runs" | "manage_platform" | "approve_intents";
 
 const PERMISSIONS: Record<Action, readonly Role[]> = {
   view_runs: ROLES,
   manage_platform: ["platform_admin"],
+  approve_intents: ["approver", "platform_admin"],
 };
 
 /** Deny by default: unknown actions (runtime strings) are never permitted. */
