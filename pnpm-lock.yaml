@@ -168,6 +168,22 @@ importers:
         specifier: ^2.1.9
         version: 2.1.9(@types/node@26.1.1)(terser@5.49.0)
 
+  packages/tool-registry:
+    dependencies:
+      '@platform/core':
+        specifier: workspace:*
+        version: link:../core
+      zod:
+        specifier: ^3.23.8
+        version: 3.25.76
+    devDependencies:
+      fast-check:
+        specifier: ^3.19.0
+        version: 3.23.2
+      vitest:
+        specifier: ^2.1.9
+        version: 2.1.9(@types/node@26.1.1)(terser@5.49.0)
+
 packages:
 
   '@emnapi/runtime@1.11.2':
@@ -2738,6 +2754,14 @@ snapshots:
       chai: 5.3.3
       tinyrainbow: 1.2.0
 
+  '@vitest/mocker@2.1.9(vite@5.4.21(@types/node@20.19.43)(terser@5.49.0))':
+    dependencies:
+      '@vitest/spy': 2.1.9
+      estree-walker: 3.0.3
+      magic-string: 0.30.21
+    optionalDependencies:
+      vite: 5.4.21(@types/node@20.19.43)(terser@5.49.0)
+
   '@vitest/mocker@2.1.9(vite@5.4.21(@types/node@26.1.1)(terser@5.49.0))':
     dependencies:
       '@vitest/spy': 2.1.9
@@ -3491,7 +3515,7 @@ snapshots:
   vitest@2.1.9(@types/node@20.19.43)(terser@5.49.0):
     dependencies:
       '@vitest/expect': 2.1.9
-      '@vitest/mocker': 2.1.9(vite@5.4.21(@types/node@26.1.1)(terser@5.49.0))
+      '@vitest/mocker': 2.1.9(vite@5.4.21(@types/node@20.19.43)(terser@5.49.0))
       '@vitest/pretty-format': 2.1.9
       '@vitest/runner': 2.1.9
       '@vitest/snapshot': 2.1.9

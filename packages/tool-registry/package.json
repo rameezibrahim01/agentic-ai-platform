@@ -1,0 +1,19 @@
+{
+  "name": "@platform/tool-registry",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@platform/core": "workspace:*",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "fast-check": "^3.19.0",
+    "vitest": "^2.1.9"
+  }
+}

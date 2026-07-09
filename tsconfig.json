@@ -6,6 +6,7 @@
     { "path": "packages/storage" },
     { "path": "packages/model-gateway" },
     { "path": "packages/telemetry" },
+    { "path": "packages/tool-registry" },
     { "path": "apps/worker" }
   ]
 }
