@@ -1,5 +1,7 @@
 export const GATEWAY_READY = true;
 
+export { AnthropicProvider, createAnthropicProviderFromEnv } from "./anthropic.js";
+export type { AnthropicProviderOptions } from "./anthropic.js";
 export { FakeProvider, fakeIntent, fakeMessage } from "./provider.js";
 export type {
   FakeBehavior,
