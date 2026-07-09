@@ -12,7 +12,8 @@ run_vitest_drill() {
   local expected_passed="$2"
   shift 2
   local out
-  if ! out=$(cd "$REPO_ROOT" && pnpm vitest run "$@" 2>&1); then
+  # NO_COLOR: CI runners colorize vitest output, which breaks summary parsing
+  if ! out=$(cd "$REPO_ROOT" && NO_COLOR=1 pnpm vitest run "$@" 2>&1); then
     echo "FAIL: ${desc} — test run failed"
     echo "$out" | tail -40
     return 1
