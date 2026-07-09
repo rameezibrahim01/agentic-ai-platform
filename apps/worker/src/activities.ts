@@ -1,6 +1,8 @@
+import type { Tracer } from "@opentelemetry/api";
 import type { BudgetExceededReason, RiskTier, RunEvent } from "@platform/core";
 import type { EventStore } from "@platform/storage";
 import type { ModelGateway, Usage } from "@platform/model-gateway";
+import { emitRunTrace } from "@platform/telemetry";
 import { idempotentAppend } from "./append.js";
 
 // Activities own all I/O and timestamps (determinism rule from ticket 003).
@@ -11,6 +13,9 @@ import { idempotentAppend } from "./append.js";
 export interface WorkerDeps {
   store: EventStore;
   gateway: ModelGateway;
+  /** Optional (ticket 008): terminal activities emit the run's trace, derived
+   *  from the event log. Omitted → tracing is skipped entirely. */
+  tracer?: Tracer;
 }
 
 export interface StartRunRequest {
@@ -67,7 +72,15 @@ function fail(error: string): never {
   throw new Error(error);
 }
 
-export function createActivities({ store, gateway }: WorkerDeps) {
+export function createActivities({ store, gateway, tracer }: WorkerDeps) {
+  // One trace per run, emitted once when the run reaches a terminal event
+  // (deduped retries do not re-emit).
+  async function emitTerminalTrace(runId: string): Promise<void> {
+    if (!tracer) return;
+    const loaded = await store.load(runId);
+    if (loaded) emitRunTrace(tracer, loaded.events);
+  }
+
   return {
     async startRun(request: StartRunRequest): Promise<{ version: number }> {
       const event: RunEvent = {
@@ -157,7 +170,9 @@ export function createActivities({ store, gateway }: WorkerDeps) {
         steps: request.steps,
       };
       const result = await idempotentAppend(store, request.runId, request.expectedVersion, [event]);
-      return result.ok ? { version: result.version } : fail(result.error);
+      if (!result.ok) fail(result.error);
+      if (!result.deduped) await emitTerminalTrace(request.runId);
+      return { version: result.version };
     },
 
     /** Engine-side termination: BudgetExceeded then RunFailed, atomically, nothing after. */
@@ -181,7 +196,9 @@ export function createActivities({ store, gateway }: WorkerDeps) {
         },
       ];
       const result = await idempotentAppend(store, request.runId, request.expectedVersion, events);
-      return result.ok ? { version: result.version } : fail(result.error);
+      if (!result.ok) fail(result.error);
+      if (!result.deduped) await emitTerminalTrace(request.runId);
+      return { version: result.version };
     },
   };
 }
