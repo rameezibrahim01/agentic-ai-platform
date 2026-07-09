@@ -1,20 +1,16 @@
-# Backlog — next batches (expand into numbered tickets when 001–005 are done)
+# Backlog — next batches
 
-## Batch 006–010 (completes Phase 1)
-- **006 — Postgres EventStore adapter.** Runs ticket 002's conformance suite unchanged; append is one
-  transaction with optimistic concurrency (unique (run_id, seq)); forward-only SQL migrations; connection
-  config via env. In-memory store remains the default for unit tests.
-- **007 — Anthropic provider.** Real `ModelProvider` behind 004's interface (API key via env, timeouts,
-  bounded retries); FakeProvider stays the default in all tests; a secrets-scan test proves no key material
-  in logs/events (CLAUDE.md rule 4).
-- **008 — OTel tracing.** One trace per run, spans per step from engine + gateway (GenAI semantic
-  conventions: tokens, cost, model, tool); exporter configurable; no-op exporter in tests.
-- **009 — Run viewer.** `apps/console` (Next.js): runs table + per-run step timeline with tokens/cost,
-  read-only, served against the EventStore. Deliberately boring; truthful over beautiful.
-- **010 — Thin schedules.** Recurring runs for read-only agents via Temporal Schedules: timezone-pinned,
-  skip-if-running overlap, explicit catch-up policy (build-plan Phase 1, exit drill 6).
+## Batch 006–010 — EXPANDED into ticket files (see tickets/006…010) ✔
 
 ## Then: Phase 1 exit
 Enable worker/console images in `deploy/docker-compose.yml`; pass the artifact test (exit drill 7);
 run all Phase 1 exit drills as recorded tests/scripts. Only then open Phase 2 (tool gateway, policy,
 approvals, identity delegation, trigger subsystem) per `docs/build-plan.md`.
+
+## Phase 1 exit candidates (expand when 006–010 are done)
+- **011 — Worker/console Dockerfiles + compose enablement.** Uncomment the app services in
+  `deploy/docker-compose.yml`; multi-stage builds; the artifact test (exit drill 7) as a recorded script.
+- **012 — Exit-drill harness.** Phase 1 exit drills 1–4 and 6 as recorded, repeatable scripts/tests
+  against the compose profile; drill results checked into `docs/drills/`.
+- **013 — OIDC sign-in floor + RBAC roles** (build-plan Phase 1 workstream (e)): local accounts,
+  roles (admin/developer/approver/auditor/viewer) attached to the audit trail's `principal`.
