@@ -1,39 +1,51 @@
-// Workflow code MUST stay deterministic: no Date.now, no Math.random, no I/O
-// (CLAUDE.md; ticket 003 scope 3). Timestamps are produced inside activities.
-// Only type-level imports from the rest of the app are allowed here — this
-// file is bundled into the workflow sandbox.
+// Workflow code MUST stay deterministic (CLAUDE.md; ticket 003 scope 3): no
+// I/O, no randomness. Date.now() here is Temporal's workflow time — patched
+// by the workflow sandbox to be deterministic and replay-safe — which is what
+// ticket 005 means by "wall-clock uses workflow time". Real timestamps for
+// events are still produced inside activities only.
 import { proxyActivities } from "@temporalio/workflow";
+import { checkBudget, detectLoop } from "@platform/core";
+import type { BudgetPolicy, BudgetReason, LoopDetectionConfig, ToolIntentLike } from "@platform/core";
 import type { Activities } from "./activities.js";
 
-const { startRun, callModel, executeTool } = proxyActivities<Activities>({
-  startToCloseTimeout: "10 seconds",
-  retry: {
-    initialInterval: "50 milliseconds",
-    backoffCoefficient: 2,
-    maximumAttempts: 5,
-  },
-});
+const { startRun, callModel, executeTool, completeRun, recordBudgetFailure } =
+  proxyActivities<Activities>({
+    startToCloseTimeout: "10 seconds",
+    retry: {
+      initialInterval: "50 milliseconds",
+      backoffCoefficient: 2,
+      maximumInterval: "2 seconds",
+    },
+  });
 
 export interface AgentRunInput {
   runId: string;
   agent: string;
   principal: string;
   input: unknown;
-  /** Scripted think→act iterations before the stub model completes the run. */
-  scriptSteps: number;
+  model: string;
+  prompt: string;
+  /** Engine-enforced budgets (ticket 005). Default: { maxSteps: 10 }. */
+  budget?: BudgetPolicy;
+  loopDetection?: LoopDetectionConfig;
 }
 
-export interface AgentRunResult {
-  outcome: "completed" | "max_steps_guard";
-  version: number;
-  steps: number;
-}
-
-/** Hard guard until ticket 005 replaces it with real budget enforcement. */
-const MAX_STEPS = 10;
+export type AgentRunResult =
+  | { outcome: "completed"; version: number; steps: number }
+  | {
+      outcome: "budget_exceeded";
+      reason: BudgetReason | "LoopDetected";
+      version: number;
+      steps: number;
+    };
 
 export async function agentRun(input: AgentRunInput): Promise<AgentRunResult> {
   const { runId } = input;
+  const budget: BudgetPolicy = input.budget ?? { maxSteps: 10 };
+  const startedAt = Date.now(); // deterministic workflow time
+  const usage = { stepCount: 0, tokensIn: 0, tokensOut: 0, costUsd: 0, startedAt };
+  const intents: ToolIntentLike[] = [];
+
   let { version } = await startRun({
     runId,
     agent: input.agent,
@@ -41,24 +53,71 @@ export async function agentRun(input: AgentRunInput): Promise<AgentRunResult> {
     input: input.input,
   });
 
-  for (let step = 0; step < MAX_STEPS; step++) {
+  for (;;) {
+    // Engine enforcement BEFORE every step — the model is never asked to behave.
+    const budgetCheck = checkBudget(usage, budget, Date.now());
+    if (!budgetCheck.ok) {
+      const failed = await recordBudgetFailure({
+        runId,
+        expectedVersion: version,
+        reason: budgetCheck.reason,
+        detail: budgetCheck.detail,
+      });
+      return {
+        outcome: "budget_exceeded",
+        reason: budgetCheck.reason,
+        version: failed.version,
+        steps: usage.stepCount,
+      };
+    }
+
     const model = await callModel({
       runId,
       expectedVersion: version,
-      step,
-      scriptSteps: input.scriptSteps,
+      model: input.model,
+      prompt: input.prompt,
     });
     version = model.version;
-    if (model.kind === "completed") {
-      return { outcome: "completed", version, steps: step };
+    usage.stepCount += 1;
+    usage.tokensIn += model.usage.tokensIn;
+    usage.tokensOut += model.usage.tokensOut;
+    usage.costUsd += model.costUsd;
+
+    if (model.kind === "message") {
+      const completed = await completeRun({
+        runId,
+        expectedVersion: version,
+        outcome: model.content,
+        totalCostUsd: usage.costUsd,
+        steps: usage.stepCount,
+      });
+      return { outcome: "completed", version: completed.version, steps: usage.stepCount };
     }
+
+    intents.push({ tool: model.tool, args: model.args });
+    const loopCheck = detectLoop(intents, input.loopDetection);
+    if (loopCheck.loop) {
+      const failed = await recordBudgetFailure({
+        runId,
+        expectedVersion: version,
+        reason: "LoopDetected",
+        detail: `intent ${loopCheck.key} repeated ${loopCheck.count}x`,
+      });
+      return {
+        outcome: "budget_exceeded",
+        reason: "LoopDetected",
+        version: failed.version,
+        steps: usage.stepCount,
+      };
+    }
+
     const tool = await executeTool({
       runId,
       expectedVersion: version,
       tool: model.tool,
       args: model.args,
+      risk: model.risk,
     });
     version = tool.version;
   }
-  return { outcome: "max_steps_guard", version, steps: MAX_STEPS };
 }

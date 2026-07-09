@@ -5,6 +5,7 @@ export {
   runEventSchema,
   riskTierSchema,
   policyDecisionSchema,
+  budgetExceededReasonSchema,
   runStartedSchema,
   modelCalledSchema,
   toolIntentEmittedSchema,
@@ -19,6 +20,7 @@ export {
   runFailedSchema,
 } from "./events.js";
 export type {
+  BudgetExceededReason,
   ParseEventResult,
   PolicyDecision,
   RiskTier,
@@ -39,6 +41,12 @@ export type {
 } from "./events.js";
 
 export { reduce, replay } from "./state.js";
+
+export { checkBudget } from "./budget.js";
+export type { BudgetCheck, BudgetPolicy, BudgetReason, BudgetUsage } from "./budget.js";
+
+export { detectLoop, detectLoopInEvents, normalizeIntentKey } from "./loop.js";
+export type { LoopCheck, LoopDetectionConfig, ToolIntentLike } from "./loop.js";
 export type {
   PendingApproval,
   PendingIntent,

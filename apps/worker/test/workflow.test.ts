@@ -5,6 +5,14 @@ import { TestWorkflowEnvironment } from "@temporalio/testing";
 import { Worker } from "@temporalio/worker";
 import { replay, type RunEventType } from "@platform/core";
 import { InMemoryEventStore } from "@platform/storage";
+import {
+  createGateway,
+  FakeProvider,
+  fakeIntent,
+  fakeMessage,
+  type FakeBehavior,
+  type Usage,
+} from "@platform/model-gateway";
 import { createActivities, type Activities } from "../src/activities.js";
 import { startAgentRun } from "../src/client.js";
 import { WORKER_READY } from "../src/index.js";
@@ -45,53 +53,73 @@ afterAll(async () => {
   await env?.teardown();
 });
 
-/** Expected log shape for a completed scripted run. */
-function expectedTypes(scriptSteps: number): RunEventType[] {
+const USAGE: Usage = { tokensIn: 100, tokensOut: 20 };
+const PRICING = { "fake-model": { inputPerMTokUsd: 3, outputPerMTokUsd: 15 } };
+
+/** Store + gateway + activities for one test, from a FakeProvider script. */
+function makeDeps(script: FakeBehavior[]) {
+  const store = new InMemoryEventStore();
+  const gateway = createGateway({
+    env: "test",
+    allowlist: ["fake-model"],
+    pricing: PRICING,
+    providers: [{ name: "fake", provider: new FakeProvider(script) }],
+  });
+  return { store, activities: createActivities({ store, gateway }) };
+}
+
+const runInput = (runId: string) => ({
+  runId,
+  agent: "stub-agent@v1",
+  principal: "user:test",
+  input: { q: 1 },
+  model: "fake-model",
+  prompt: "scripted",
+});
+
+/** Completed run with `steps` tool steps: RunStarted, 4 events per step, final ModelCalled, RunCompleted. */
+function expectedCompletedTypes(steps: number): RunEventType[] {
   const types: RunEventType[] = ["RunStarted"];
-  for (let i = 0; i < scriptSteps; i++) {
+  for (let i = 0; i < steps; i++) {
     types.push("ModelCalled", "ToolIntentEmitted", "PolicyEvaluated", "ToolExecuted");
   }
-  types.push("RunCompleted");
+  types.push("ModelCalled", "RunCompleted");
   return types;
 }
 
-async function assertCleanLog(
-  store: InMemoryEventStore,
-  runId: string,
-  scriptSteps: number,
-): Promise<void> {
+async function loadReplayed(store: InMemoryEventStore, runId: string) {
   const loaded = await store.load(runId);
   expect(loaded).not.toBeNull();
-  // zero duplicated events: strictly contiguous seq starting at 0…
+  // zero duplicated events: strictly contiguous seq starting at 0
   expect(loaded!.events.map((e) => e.seq)).toEqual([...loaded!.events.keys()]);
-  // …and exactly the scripted shape, nothing extra
-  expect(loaded!.events.map((e) => e.type)).toEqual(expectedTypes(scriptSteps));
   const replayed = replay(loaded!.events);
   expect(replayed.ok).toBe(true);
-  if (replayed.ok) {
-    expect(replayed.state.status).toBe("completed");
-    expect(replayed.state.stepCount).toBe(scriptSteps);
-  }
+  if (!replayed.ok) throw new Error("unreachable");
+  return { events: loaded!.events, state: replayed.state };
 }
 
-describe("agentRun workflow (ticket 003)", () => {
+describe("agentRun workflow (tickets 003 + 005)", () => {
   it(
     "kill test: worker dies mid-run; a fresh worker completes it with zero duplicated events",
     async (ctx) => {
       if (!env) return ctx.skip();
-      const store = new InMemoryEventStore();
-      const real = createActivities(store);
       const runId = "run-kill";
-      const scriptSteps = 4;
       const taskQueue = "tq-kill-test";
+      const { store, activities: real } = makeDeps([
+        { kind: "respond", result: fakeIntent({ tool: "stub.lookup", args: { step: 0 } }, USAGE) },
+        { kind: "respond", result: fakeIntent({ tool: "stub.lookup", args: { step: 1 } }, USAGE) },
+        { kind: "respond", result: fakeIntent({ tool: "stub.lookup", args: { step: 2 } }, USAGE) },
+        { kind: "respond", result: fakeIntent({ tool: "stub.lookup", args: { step: 3 } }, USAGE) },
+        { kind: "respond", result: fakeMessage("all done", USAGE) },
+      ]);
 
-      // Worker 1 executes steps 0–1, then starts failing — simulating a worker
-      // that dies partway through the run, between two activities.
+      // Worker 1 executes steps 0–1 (log version 9), then starts failing —
+      // simulating a worker that dies between two activities mid-run.
       let worker1Refusals = 0;
       const activities1: Activities = {
         ...real,
         async callModel(request) {
-          if (request.step >= 2) {
+          if (request.expectedVersion >= 9) {
             worker1Refusals += 1;
             throw new Error("injected: worker1 dying");
           }
@@ -105,12 +133,7 @@ describe("agentRun workflow (ticket 003)", () => {
         activities: activities1,
       });
       const worker1Run = worker1.run();
-
-      const handle = await startAgentRun(
-        env.client,
-        { runId, agent: "stub-agent@v1", principal: "user:test", input: { q: 1 }, scriptSteps },
-        { taskQueue },
-      );
+      const handle = await startAgentRun(env.client, runInput(runId), { taskQueue });
 
       // Wait until worker1 has demonstrably progressed into the run and hit the wall.
       while (worker1Refusals === 0) {
@@ -118,8 +141,7 @@ describe("agentRun workflow (ticket 003)", () => {
       }
       worker1.shutdown();
       await worker1Run;
-      expect((await store.load(runId))!.version).toBeGreaterThanOrEqual(9); // steps 0–1 landed
-      expect((await store.load(runId))!.version).toBeLessThan(18); // run genuinely unfinished
+      expect((await store.load(runId))!.version).toBe(9); // steps 0–1 landed, run unfinished
 
       // Fresh worker picks the run up from Temporal history and finishes it.
       let worker2ModelCalls = 0;
@@ -138,9 +160,12 @@ describe("agentRun workflow (ticket 003)", () => {
       });
       const result = await worker2.runUntil(handle.result());
 
-      expect(result).toEqual({ outcome: "completed", version: 18, steps: scriptSteps });
+      expect(result).toEqual({ outcome: "completed", version: 19, steps: 5 });
       expect(worker2ModelCalls).toBeGreaterThan(0); // worker2 did real work
-      await assertCleanLog(store, runId, scriptSteps);
+      const { events, state } = await loadReplayed(store, runId);
+      expect(events.map((e) => e.type)).toEqual(expectedCompletedTypes(4));
+      expect(state.status).toBe("completed");
+      expect(state.stepCount).toBe(5);
     },
     120_000,
   );
@@ -149,11 +174,12 @@ describe("agentRun workflow (ticket 003)", () => {
     "retry test: an activity that fails after appending yields exactly one appended event set",
     async (ctx) => {
       if (!env) return ctx.skip();
-      const store = new InMemoryEventStore();
-      const real = createActivities(store);
       const runId = "run-retry";
-      const scriptSteps = 1;
       const taskQueue = "tq-retry-test";
+      const { store, activities: real } = makeDeps([
+        { kind: "respond", result: fakeIntent({ tool: "stub.lookup", args: { q: 1 } }, USAGE) },
+        { kind: "respond", result: fakeMessage("done", USAGE) },
+      ]);
 
       let executeToolAttempts = 0;
       const activities: Activities = {
@@ -175,17 +201,96 @@ describe("agentRun workflow (ticket 003)", () => {
       });
 
       const result = await worker.runUntil(async () => {
-        const handle = await startAgentRun(
-          env.client,
-          { runId, agent: "stub-agent@v1", principal: "user:test", input: {}, scriptSteps },
-          { taskQueue },
-        );
+        const handle = await startAgentRun(env!.client, runInput(runId), { taskQueue });
         return handle.result();
       });
 
       expect(executeToolAttempts).toBe(2); // retried…
       expect(result.outcome).toBe("completed");
-      await assertCleanLog(store, runId, scriptSteps); // …but appended exactly once
+      const { events } = await loadReplayed(store, runId); // …but appended exactly once
+      expect(events.map((e) => e.type)).toEqual(expectedCompletedTypes(1));
+    },
+    120_000,
+  );
+
+  it(
+    "adversarial loop: a provider scripted to loop forever is terminated by loop detection",
+    async (ctx) => {
+      if (!env) return ctx.skip();
+      const runId = "run-loop";
+      const taskQueue = "tq-loop-test";
+      // Last script item repeats forever: the model "wants" this intent eternally.
+      // Near-identical args (key order, whitespace) must still be caught.
+      const { store, activities } = makeDeps([
+        { kind: "respond", result: fakeIntent({ tool: "stub.lookup", args: { q: "acme", limit: 10 } }, USAGE) },
+        { kind: "respond", result: fakeIntent({ tool: "stub.lookup", args: { limit: 10, q: " acme " } }, USAGE) },
+        { kind: "respond", result: fakeIntent({ tool: "stub.lookup", args: { q: "acme", limit: 10.0000001 } }, USAGE) },
+      ]);
+      const worker = await Worker.create({
+        connection: env.nativeConnection,
+        taskQueue,
+        workflowsPath,
+        activities,
+      });
+
+      const result = await worker.runUntil(async () => {
+        const handle = await startAgentRun(env!.client, runInput(runId), { taskQueue });
+        return handle.result();
+      });
+
+      // terminated within ≤ N+1 identical intents (N = 3): 3 model calls, run failed
+      expect(result).toEqual({ outcome: "budget_exceeded", reason: "LoopDetected", version: 12, steps: 3 });
+      const { events, state } = await loadReplayed(store, runId);
+      expect(events.filter((e) => e.type === "ModelCalled")).toHaveLength(3);
+      // BudgetExceeded then RunFailed(LoopDetected), and nothing after
+      expect(events.at(-2)?.type).toBe("BudgetExceeded");
+      expect(events.at(-1)).toMatchObject({ type: "RunFailed", reason: "LoopDetected" });
+      expect(state.status).toBe("failed");
+      expect(state.outcome).toEqual({ kind: "failed", reason: "LoopDetected" });
+    },
+    120_000,
+  );
+
+  it(
+    "cost cap: expensive usage trips maxCostUsd at the correct step; nothing after RunFailed",
+    async (ctx) => {
+      if (!env) return ctx.skip();
+      const runId = "run-costcap";
+      const taskQueue = "tq-costcap-test";
+      // 1M input tokens at $3/MTok = $3.00 per call… wait, keep it simple:
+      // usage priced to exactly $1.00 per call via tokensIn.
+      const expensive: Usage = { tokensIn: 333_000, tokensOut: 100 }; // ≈ $1.0005/call at PRICING
+      const { store, activities } = makeDeps([
+        { kind: "respond", result: fakeIntent({ tool: "stub.lookup", args: { q: 0 } }, expensive) },
+        { kind: "respond", result: fakeIntent({ tool: "stub.lookup", args: { q: 1 } }, expensive) },
+        { kind: "respond", result: fakeIntent({ tool: "stub.lookup", args: { q: 2 } }, expensive) },
+        { kind: "respond", result: fakeIntent({ tool: "stub.lookup", args: { q: 3 } }, expensive) },
+      ]);
+      const worker = await Worker.create({
+        connection: env.nativeConnection,
+        taskQueue,
+        workflowsPath,
+        activities,
+      });
+
+      const result = await worker.runUntil(async () => {
+        const handle = await startAgentRun(
+          env!.client,
+          { ...runInput(runId), budget: { maxSteps: 100, maxCostUsd: 2.5 } },
+          { taskQueue },
+        );
+        return handle.result();
+      });
+
+      // ~$1/call: within budget after 2 calls, over after the 3rd → trips before call 4
+      expect(result).toEqual({ outcome: "budget_exceeded", reason: "MaxCostUsd", version: 15, steps: 3 });
+      const { events, state } = await loadReplayed(store, runId);
+      expect(events.filter((e) => e.type === "ModelCalled")).toHaveLength(3);
+      expect(events.at(-2)?.type).toBe("BudgetExceeded");
+      expect(events.at(-1)).toMatchObject({ type: "RunFailed", reason: "MaxCostUsd" });
+      expect(state.status).toBe("failed");
+      expect(state.costUsd).toBeGreaterThan(2.5); // overshoot bounded to the crossing call
+      expect(state.costUsd).toBeLessThan(3.6);
     },
     120_000,
   );
