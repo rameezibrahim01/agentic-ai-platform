@@ -10,6 +10,7 @@ export default defineConfig({
       "@platform/storage/conformance": p("./packages/storage/src/conformance.ts"),
       "@platform/auth": p("./packages/auth/src/index.ts"),
       "@platform/core": p("./packages/core/src/index.ts"),
+      "@platform/identity": p("./packages/identity/src/index.ts"),
       "@platform/storage": p("./packages/storage/src/index.ts"),
       "@platform/model-gateway": p("./packages/model-gateway/src/index.ts"),
       "@platform/policy": p("./packages/policy/src/index.ts"),

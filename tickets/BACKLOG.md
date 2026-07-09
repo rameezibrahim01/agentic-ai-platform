@@ -13,14 +13,14 @@ delegation, trigger subsystem) per `docs/build-plan.md`.
 Note: expanded on owner authorization while the two human-owned Phase 1 sign-offs
 (usefulness, invoice reconciliation) remain open in docs/drills/phase-1.md.
 
-## Phase 2, next seeds (expand when 014–018 are done)
-- **019 — Identity & delegation:** workload identity per agent per env, token exchange,
-  delegated time-boxed credentials for runs acting for a user (architecture §7).
-- **020 — Standing delegation grants + trigger subsystem:** run templates as objects,
-  event triggers, standing grants (named tools, mandatory expiry, revocation, audited use);
-  the 2 a.m. exit drill.
-- **021 — First real write tool + MCP wrapping:** partner-workflow write action behind the
-  gateway; diff-style mutation preview in the inbox; the "first approved write in prod" drill.
-- **022 — Secrets-scan drill + red-team rerun:** automated scan of all logged prompts/completions
-  (Phase 2 drills 5 & 3 as recorded scripts, extending scripts/drills/).
-- Sandbox pool stays deferred until the partner workflow needs code execution (build-plan cut list).
+## Batch 019–022 — EXPANDED into ticket files (see tickets/019…022) ✔
+
+## Phase 2, remaining seeds (expand when 019–022 are done)
+- **023 — Run templates + event triggers:** templates as saved shareable objects with
+  view/edit/trigger grants; registered-webhook event triggers, governed like any object.
+- **024 — MCP transport:** wrap an external MCP server as executors behind the tool
+  gateway — the moment it is wrapped it inherits the entire governance stack (architecture §6).
+- **025 — Approval UX depth:** diff-style mutation previews, sane batching of low-risk
+  changesets, delegation/escalation on SLA breach.
+- The partner's REAL write (drill 1's true form) and the external red-team review remain
+  human-owned; sandbox pool stays deferred until the partner workflow needs code execution.

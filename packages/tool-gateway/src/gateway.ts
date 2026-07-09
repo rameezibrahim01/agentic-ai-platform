@@ -5,6 +5,7 @@ import type {
   ToolFailed,
   ToolIntentEmitted,
 } from "@platform/core";
+import { delegationCovers, verifyDelegation } from "@platform/identity";
 import { evaluatePolicy } from "@platform/policy";
 import type { PolicyResult, PolicyRule } from "@platform/policy";
 import { hasGrant, refKey, ToolRegistry } from "@platform/tool-registry";
@@ -28,6 +29,8 @@ export interface IntentRequest {
   agent: string;
   principal: string;
   intent: { tool: string; version: string; args: Record<string, unknown> };
+  /** Delegated credential for runs acting for a user (ticket 019). */
+  delegation?: string;
 }
 
 // Event payloads ready for the log — the engine adds { runId, seq, at }.
@@ -37,6 +40,9 @@ export type ToolExecutedPayload = Omit<ToolExecuted, "type" | "runId" | "seq" | 
 export type ToolFailedPayload = Omit<ToolFailed, "type" | "runId" | "seq" | "at">;
 
 export type RefusalReason =
+  | { code: "delegation_missing"; ref: string }
+  | { code: "delegation_invalid"; reason: "malformed" | "tampered" | "expired" }
+  | { code: "delegation_out_of_scope"; detail: string }
   | { code: "not_granted"; ref: string }
   | { code: "tool_not_found"; ref: string }
   | { code: "invalid_input"; issues: ZodIssue[] }
@@ -80,6 +86,8 @@ export interface ToolGatewayOptions {
   egressAllowlist: readonly string[];
   /** Server-side secrets per name@version — never present in intents/events. */
   secrets?: Readonly<Record<string, Readonly<Record<string, string>>>>;
+  /** When required, every intent must carry a covering delegation (ticket 019). */
+  delegation?: { required: boolean; secret: string };
   env: string;
   makeReqId?: () => string;
   nowMs?: () => number;
@@ -128,6 +136,45 @@ export function createToolGateway(options: ToolGatewayOptions): ToolGateway {
       decision: "deny",
       rule: `gateway:${code}`,
     });
+
+    // (0) delegation — when required, the credential gates everything else:
+    // it must verify, belong to this principal+agent, and cover exactly this
+    // tool at this risk (unknown tools rate the worst tier, so a delegation
+    // that doesn't explicitly include "irreversible" can never reach them).
+    if (options.delegation?.required) {
+      if (request.delegation === undefined) {
+        return refuse(
+          { code: "delegation_missing", ref: toolId },
+          { intent: auditIntent, policy: gatewayDeny("delegation_missing") },
+        );
+      }
+      const verified = verifyDelegation(request.delegation, options.delegation.secret, nowMs());
+      if (!verified.ok) {
+        return refuse(
+          { code: "delegation_invalid", reason: verified.reason },
+          { intent: auditIntent, policy: gatewayDeny("delegation_invalid") },
+        );
+      }
+      if (
+        verified.claims.principal !== request.principal ||
+        verified.claims.agent !== request.agent ||
+        verified.claims.env !== options.env
+      ) {
+        return refuse(
+          { code: "delegation_out_of_scope", detail: "principal/agent/env mismatch" },
+          { intent: auditIntent, policy: gatewayDeny("delegation_out_of_scope") },
+        );
+      }
+      if (!delegationCovers(verified.claims, ref, auditIntent.risk)) {
+        return refuse(
+          {
+            code: "delegation_out_of_scope",
+            detail: `delegation does not cover ${toolId} at risk ${auditIntent.risk}`,
+          },
+          { intent: auditIntent, policy: gatewayDeny("delegation_out_of_scope") },
+        );
+      }
+    }
 
     // (a) grant — refused no matter what the model asked for; unknown tools
     // are indistinguishable from ungranted ones to the model (no probing).
