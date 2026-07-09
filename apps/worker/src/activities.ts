@@ -1,10 +1,17 @@
-import type { RunEvent } from "@platform/core";
+import type { BudgetExceededReason, RiskTier, RunEvent } from "@platform/core";
 import type { EventStore } from "@platform/storage";
+import type { ModelGateway, Usage } from "@platform/model-gateway";
 import { idempotentAppend } from "./append.js";
 
-// Stub activities (ticket 003): scripted values, no real providers. Real model
-// and tool calls arrive via @platform/model-gateway in tickets 004/005+.
-// Timestamps are produced HERE, never in workflow code (determinism rule).
+// Activities own all I/O and timestamps (determinism rule from ticket 003).
+// Since ticket 005 the model path goes through @platform/model-gateway —
+// gateway usage feeds token/cost totals via the reducer, no separate
+// accounting (CLAUDE.md #7). Tests script behavior with FakeProvider.
+
+export interface WorkerDeps {
+  store: EventStore;
+  gateway: ModelGateway;
+}
 
 export interface StartRunRequest {
   runId: string;
@@ -17,31 +24,50 @@ export interface CallModelRequest {
   runId: string;
   /** Current log length; doubles as the seq of the event this call appends. */
   expectedVersion: number;
-  step: number;
-  /** Scripted behavior: intents for `scriptSteps` steps, then completion. */
-  scriptSteps: number;
+  model: string;
+  prompt: string;
 }
 
 export type CallModelResponse =
-  | { kind: "tool_intent"; version: number; tool: string; args: Record<string, unknown> }
-  | { kind: "completed"; version: number };
+  | {
+      kind: "tool_intent";
+      version: number;
+      tool: string;
+      args: Record<string, unknown>;
+      risk: RiskTier;
+      usage: Usage;
+      costUsd: number;
+    }
+  | { kind: "message"; version: number; content: string; usage: Usage; costUsd: number };
 
 export interface ExecuteToolRequest {
   runId: string;
   expectedVersion: number;
   tool: string;
   args: Record<string, unknown>;
+  risk: RiskTier;
 }
 
-export interface ExecuteToolResponse {
-  version: number;
+export interface CompleteRunRequest {
+  runId: string;
+  expectedVersion: number;
+  outcome: string;
+  totalCostUsd: number;
+  steps: number;
+}
+
+export interface RecordBudgetFailureRequest {
+  runId: string;
+  expectedVersion: number;
+  reason: BudgetExceededReason;
+  detail: string;
 }
 
 function fail(error: string): never {
   throw new Error(error);
 }
 
-export function createActivities(store: EventStore) {
+export function createActivities({ store, gateway }: WorkerDeps) {
   return {
     async startRun(request: StartRunRequest): Promise<{ version: number }> {
       const event: RunEvent = {
@@ -58,48 +84,46 @@ export function createActivities(store: EventStore) {
     },
 
     async callModel(request: CallModelRequest): Promise<CallModelResponse> {
-      const { runId, expectedVersion, step, scriptSteps } = request;
-      const done = step >= scriptSteps;
-      const event: RunEvent = done
-        ? {
-            type: "RunCompleted",
-            runId,
-            seq: expectedVersion,
-            at: Date.now(),
-            outcome: `scripted completion after ${step} steps`,
-            totalCostUsd: 0.001 * step,
-            steps: step,
-          }
-        : {
-            type: "ModelCalled",
-            runId,
-            seq: expectedVersion,
-            at: Date.now(),
-            gatewayReqId: `stub-${runId}-${expectedVersion}`,
-            model: "stub-model",
-            tokensIn: 100 + step,
-            tokensOut: 40 + step,
-            costUsd: 0.001,
-          };
+      const { runId, expectedVersion, model, prompt } = request;
+      const completion = await gateway.complete({ runId, model, prompt });
+      if (!completion.ok) fail(`gateway refused: ${JSON.stringify(completion.error)}`);
+
+      const event: RunEvent = {
+        type: "ModelCalled",
+        runId,
+        seq: expectedVersion,
+        at: Date.now(),
+        ...completion.modelCalled,
+      };
       const result = await idempotentAppend(store, runId, expectedVersion, [event]);
       if (!result.ok) fail(result.error);
-      return done
-        ? { kind: "completed", version: result.version }
+
+      return completion.kind === "message"
+        ? {
+            kind: "message",
+            version: result.version,
+            content: completion.content,
+            usage: completion.usage,
+            costUsd: completion.costUsd,
+          }
         : {
             kind: "tool_intent",
             version: result.version,
-            tool: "stub.lookup",
-            args: { step },
+            tool: completion.intent.tool,
+            args: completion.intent.args,
+            risk: completion.intent.risk,
+            usage: completion.usage,
+            costUsd: completion.costUsd,
           };
     },
 
-    async executeTool(request: ExecuteToolRequest): Promise<ExecuteToolResponse> {
-      const { runId, expectedVersion, tool, args } = request;
+    async executeTool(request: ExecuteToolRequest): Promise<{ version: number }> {
+      const { runId, expectedVersion, tool, args, risk } = request;
       const at = Date.now();
       // One atomic append: intent → policy(allow) → executed, the read-only
       // Phase 1 shape. The real policy engine arrives in Phase 2.
       const events: RunEvent[] = [
-        { type: "ToolIntentEmitted", runId, seq: expectedVersion, at, tool, args, risk: "read" },
+        { type: "ToolIntentEmitted", runId, seq: expectedVersion, at, tool, args, risk },
         {
           type: "PolicyEvaluated",
           runId,
@@ -119,6 +143,44 @@ export function createActivities(store: EventStore) {
         },
       ];
       const result = await idempotentAppend(store, runId, expectedVersion, events);
+      return result.ok ? { version: result.version } : fail(result.error);
+    },
+
+    async completeRun(request: CompleteRunRequest): Promise<{ version: number }> {
+      const event: RunEvent = {
+        type: "RunCompleted",
+        runId: request.runId,
+        seq: request.expectedVersion,
+        at: Date.now(),
+        outcome: request.outcome,
+        totalCostUsd: request.totalCostUsd,
+        steps: request.steps,
+      };
+      const result = await idempotentAppend(store, request.runId, request.expectedVersion, [event]);
+      return result.ok ? { version: result.version } : fail(result.error);
+    },
+
+    /** Engine-side termination: BudgetExceeded then RunFailed, atomically, nothing after. */
+    async recordBudgetFailure(request: RecordBudgetFailureRequest): Promise<{ version: number }> {
+      const at = Date.now();
+      const events: RunEvent[] = [
+        {
+          type: "BudgetExceeded",
+          runId: request.runId,
+          seq: request.expectedVersion,
+          at,
+          reason: request.reason,
+          detail: request.detail,
+        },
+        {
+          type: "RunFailed",
+          runId: request.runId,
+          seq: request.expectedVersion + 1,
+          at,
+          reason: request.reason,
+        },
+      ];
+      const result = await idempotentAppend(store, request.runId, request.expectedVersion, events);
       return result.ok ? { version: result.version } : fail(result.error);
     },
   };

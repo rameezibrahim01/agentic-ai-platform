@@ -100,12 +100,20 @@ export const toolFailedSchema = z
   })
   .strict();
 
+export const budgetExceededReasonSchema = z.enum([
+  "MaxSteps",
+  "MaxTokens",
+  "MaxCostUsd",
+  "MaxWallMs",
+  "LoopDetected",
+]);
+export type BudgetExceededReason = z.infer<typeof budgetExceededReasonSchema>;
+
 export const budgetExceededSchema = z
   .object({
     ...eventBase,
     type: z.literal("BudgetExceeded"),
-    // Refined to a closed enum by ticket 005 (MaxSteps | MaxTokens | MaxCostUsd | MaxWallMs | LoopDetected).
-    reason: z.string().min(1),
+    reason: budgetExceededReasonSchema,
     detail: z.string().optional(),
   })
   .strict();

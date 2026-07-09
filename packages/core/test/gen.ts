@@ -65,7 +65,18 @@ export function arbEventOfType(
         .record({ at, error: str, retryable: fc.boolean() })
         .map((p) => ({ type, ...base, ...p }));
     case "BudgetExceeded":
-      return fc.record({ at, reason: str }).map((p) => ({ type, ...base, ...p }));
+      return fc
+        .record({
+          at,
+          reason: fc.constantFrom(
+            "MaxSteps",
+            "MaxTokens",
+            "MaxCostUsd",
+            "MaxWallMs",
+            "LoopDetected" as const,
+          ),
+        })
+        .map((p) => ({ type, ...base, ...p }));
     case "RunCompleted":
       return fc
         .record({ at, outcome: str, totalCostUsd: money, steps: fc.integer({ min: 0, max: 100 }) })
