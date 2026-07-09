@@ -228,6 +228,42 @@ describe("approval flow in the engine (ticket 017)", () => {
   );
 
   it(
+    "environment split: the identical write auto-executes in dev, by policy alone",
+    async (ctx) => {
+      if (!env) return ctx.skip();
+      const runId = "run-envsplit-dev";
+      const taskQueue = "tq-envsplit-dev";
+      const { store, activities, writeExecuted } = makeWorld(WRITE_SCRIPT, { env: "dev" });
+      const worker = await Worker.create({
+        connection: env.nativeConnection,
+        taskQueue,
+        workflowsPath,
+        activities,
+      });
+
+      const result = await worker.runUntil(async () => {
+        const handle = await startAgentRun(env!.client, runInput(runId), { taskQueue });
+        return handle.result(); // nobody approves anything — dev doesn't ask
+      });
+
+      expect(result.outcome).toBe("completed");
+      expect(writeExecuted).toEqual([{ id: 42, status: "solved" }]);
+      expect(await eventTypes(store, runId)).toEqual([
+        "RunStarted",
+        "ModelCalled",
+        "ToolIntentEmitted",
+        "PolicyEvaluated", // allow, write-dev-auto-allow — no approval events at all
+        "ToolExecuted",
+        "ModelCalled",
+        "RunCompleted",
+      ]);
+      const events = (await store.load(runId))!.events;
+      expect(events[3]).toMatchObject({ decision: "allow", rule: "write-dev-auto-allow" });
+    },
+    120_000,
+  );
+
+  it(
     "out-of-grant intents are refused-and-audited; the run survives",
     async (ctx) => {
       if (!env) return ctx.skip();

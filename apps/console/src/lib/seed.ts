@@ -41,8 +41,21 @@ function budgetFailedDemo(): RunEvent[] {
   return events;
 }
 
+function awaitingApprovalDemo(): RunEvent[] {
+  const runId = "demo-awaiting-approval";
+  const t0 = Date.UTC(2026, 0, 15, 11, 0, 0);
+  let seq = 0;
+  return [
+    { type: "RunStarted", runId, seq: seq++, at: t0, agent: "support-triage@v1", principal: "user:demo", input: { queue: "refunds" } },
+    { type: "ModelCalled", runId, seq: seq++, at: t0 + 800, gatewayReqId: "demo-a1", model: "claude-demo", tokensIn: 2100, tokensOut: 240, costUsd: 0.0099 },
+    { type: "ToolIntentEmitted", runId, seq: seq++, at: t0 + 900, tool: "zendesk.update_ticket@v3", args: { id: 4821, status: "solved" }, risk: "write" },
+    { type: "PolicyEvaluated", runId, seq: seq++, at: t0 + 910, decision: "require_approval", rule: "write-requires-approval" },
+    { type: "ApprovalRequested", runId, seq: seq++, at: t0 + 920, approverGroup: "approvers", expiresAt: t0 + 4 * 60 * 60 * 1000 },
+  ];
+}
+
 export async function seedDemoRuns(store: EventStore): Promise<void> {
-  for (const events of [completedDemo(), budgetFailedDemo()]) {
+  for (const events of [completedDemo(), budgetFailedDemo(), awaitingApprovalDemo()]) {
     const runId = events[0]!.runId;
     if ((await store.load(runId)) === null) {
       await store.append(runId, 0, events);

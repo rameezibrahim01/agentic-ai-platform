@@ -110,6 +110,9 @@ describe("rbac: can()", () => {
     for (const role of ROLES) {
       expect(can([role], "view_runs")).toBe(true);
       expect(can([role], "manage_platform")).toBe(role === "platform_admin");
+      expect(can([role], "approve_intents")).toBe(
+        role === "approver" || role === "platform_admin",
+      );
     }
   });
 
