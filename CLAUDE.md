@@ -33,3 +33,10 @@ Sequencing: `docs/build-plan.md`. Current focus: **Phase 1**, executed via `tick
 - Small commits per ticket; commit message starts with the ticket id (e.g., `001: run event model`).
 - If a ticket conflicts with `docs/architecture.md`, stop and flag it instead of improvising.
 - When `tickets/` is exhausted, generate the next numbered batch from `tickets/BACKLOG.md` and `docs/build-plan.md` **in the same ticket format** (scope, out-of-scope, allowed deps, checkbox acceptance criteria) before writing any code.
+
+### Issue tracking
+- **Ticket files are the spec; GitHub issues track status only.** On any disagreement the ticket file wins — fix the issue, never the reverse.
+- Each ticket `NNN` has an issue titled `NNN — <ticket title>` (labels `type:ticket` + `phase-N`); future ticket batches create their issues the same way.
+- Branch per ticket: `ticket/NNN-<slug>` (never `main`). PR titled `NNN: <summary>` with `Closes #<issue>` in the body.
+- Tick the issue's acceptance checkboxes as they pass. Done = PR merged green + issue auto-closed.
+- Mid-ticket discoveries become **new issues** (`type:bug` / `type:design`), not scope creep in the current ticket.
