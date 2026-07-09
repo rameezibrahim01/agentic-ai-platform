@@ -9,6 +9,7 @@
     "start": "next start"
   },
   "dependencies": {
+    "@platform/auth": "workspace:*",
     "@platform/core": "workspace:*",
     "@platform/storage": "workspace:*",
     "next": "^15.1.6",

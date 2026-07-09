@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { requireSession } from "../../../lib/auth";
 import { getStore } from "../../../lib/store";
 import { formatUsd, formatUtc, runTimelineView } from "../../../lib/viewmodels";
 
@@ -11,6 +12,7 @@ export default async function RunTimelinePage({
 }: {
   params: Promise<{ runId: string }>;
 }) {
+  await requireSession();
   const { runId } = await params;
   const timeline = await runTimelineView(await getStore(), decodeURIComponent(runId));
 

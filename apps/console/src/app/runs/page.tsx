@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { requireSession } from "../../lib/auth";
 import { getStore } from "../../lib/store";
 import { formatUsd, formatUtc, runListView } from "../../lib/viewmodels";
 
@@ -7,9 +8,16 @@ export const dynamic = "force-dynamic";
 const cell: React.CSSProperties = { border: "1px solid #ccc", padding: "4px 8px", textAlign: "left" };
 
 export default async function RunsPage() {
+  const session = await requireSession();
   const rows = await runListView(await getStore());
   return (
     <main>
+      <p>
+        signed in as <b>{session.principal}</b> ({session.roles.join(", ")}){" "}
+        <form action="/api/logout" method="post" style={{ display: "inline" }}>
+          <button type="submit">sign out</button>
+        </form>
+      </p>
       <h2 style={{ fontSize: 16 }}>runs ({rows.length})</h2>
       <table style={{ borderCollapse: "collapse" }}>
         <thead>
