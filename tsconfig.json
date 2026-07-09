@@ -8,6 +8,7 @@
     { "path": "packages/telemetry" },
     { "path": "packages/policy" },
     { "path": "packages/tool-registry" },
+    { "path": "packages/tool-gateway" },
     { "path": "apps/worker" }
   ]
 }

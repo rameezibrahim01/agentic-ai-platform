@@ -184,6 +184,31 @@ importers:
         specifier: ^2.1.9
         version: 2.1.9(@types/node@26.1.1)(terser@5.49.0)
 
+  packages/tool-gateway:
+    dependencies:
+      '@platform/core':
+        specifier: workspace:*
+        version: link:../core
+      '@platform/policy':
+        specifier: workspace:*
+        version: link:../policy
+      '@platform/tool-registry':
+        specifier: workspace:*
+        version: link:../tool-registry
+      zod:
+        specifier: ^3.23.8
+        version: 3.25.76
+    devDependencies:
+      '@types/node':
+        specifier: ^20.19.43
+        version: 20.19.43
+      fast-check:
+        specifier: ^3.19.0
+        version: 3.23.2
+      vitest:
+        specifier: ^2.1.9
+        version: 2.1.9(@types/node@20.19.43)(terser@5.49.0)
+
   packages/tool-registry:
     dependencies:
       '@platform/core':
