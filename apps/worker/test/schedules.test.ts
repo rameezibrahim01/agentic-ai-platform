@@ -85,7 +85,8 @@ describe("thin schedules (ticket 010)", () => {
         const description = await describeAgentSchedule(env.client, scheduleId);
         expect(description.spec.timezone).toBe("America/Chicago");
         expect(description.policies.overlap).toBe(ScheduleOverlapPolicy.SKIP);
-        expect(description.policies.catchupWindow).toBeLessThanOrEqual(1_000);
+        // "drop missed occurrences" maps to the server-minimum 10s window
+        expect(description.policies.catchupWindow).toBe(10_000);
         expect(description.state.paused).toBe(true);
 
         await resumeAgentSchedule(env.client, scheduleId, "resuming for test");

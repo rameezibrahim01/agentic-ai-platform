@@ -45,10 +45,11 @@ export async function createAgentSchedule(
     },
     policies: {
       overlap: ScheduleOverlapPolicy.SKIP,
-      // Temporal treats 0 as "unset" and applies its 60s default, so the
-      // "drop missed occurrences" decision maps to the smallest window the
-      // server accepts (1s) — occurrences older than that are dropped.
-      catchupWindow: Math.max(spec.catchupWindowMs, 1_000),
+      // Temporal's server enforces a 10s minimum catch-up window (0 would be
+      // treated as "unset" → its 60s default), so the "drop missed
+      // occurrences" decision maps to that minimum: anything missed for
+      // longer than 10s is dropped.
+      catchupWindow: Math.max(spec.catchupWindowMs, 10_000),
     },
     state: {
       paused: spec.paused ?? false,
