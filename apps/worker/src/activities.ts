@@ -1,5 +1,7 @@
 import type { Tracer } from "@opentelemetry/api";
 import type { BudgetExceededReason, RunEvent } from "@platform/core";
+import { exerciseGrant } from "@platform/identity";
+import type { GrantExercise, GrantStore } from "@platform/identity";
 import type { EventStore } from "@platform/storage";
 import type { ModelGateway, Usage } from "@platform/model-gateway";
 import type { ToolGateway } from "@platform/tool-gateway";
@@ -18,6 +20,15 @@ export interface WorkerDeps {
   tools: ToolGateway;
   /** Optional (ticket 008): terminal activities emit the run's trace. */
   tracer?: Tracer;
+  /** Optional (ticket 020): standing grants for scheduled runs. */
+  grants?: {
+    store: GrantStore;
+    /** Delegation signing secret — the same one the tool gateway verifies with. */
+    secret: string;
+    env: string;
+    /** Per-occurrence delegation ttl; always capped at the grant's expiry. Default 15 min. */
+    ttlMs?: number;
+  };
 }
 
 export interface StartRunRequest {
@@ -83,6 +94,16 @@ export interface ExecuteApprovedRequest {
   delegation?: string;
 }
 
+export interface ResolveStandingGrantRequest {
+  grantId: string;
+  runId: string;
+  agent: string;
+}
+
+export type ResolveStandingGrantResponse =
+  | { ok: true; delegation: string; exercise: GrantExercise }
+  | { ok: false; reason: "grants_not_configured" | "not_found" | "revoked" | "expired" };
+
 export interface CompleteRunRequest {
   runId: string;
   expectedVersion: number;
@@ -108,7 +129,7 @@ export function parseToolId(tool: string): { name: string; version: string } {
   return { name: tool.slice(0, at), version: tool.slice(at + 1) };
 }
 
-export function createActivities({ store, gateway, tools, tracer }: WorkerDeps) {
+export function createActivities({ store, gateway, tools, tracer, grants }: WorkerDeps) {
   // One trace per run, emitted once when the run reaches a terminal event
   // (deduped retries do not re-emit).
   async function emitTerminalTrace(runId: string): Promise<void> {
@@ -225,6 +246,31 @@ export function createActivities({ store, gateway, tools, tracer }: WorkerDeps) 
       return result.ok
         ? { kind: "refused", version: result.version, reason: outcome.reason.code }
         : fail(result.error);
+    },
+
+    /**
+     * Resolve a standing grant for a scheduled occurrence (ticket 020). A
+     * revoked/expired/missing grant is NOT an activity failure: the run
+     * proceeds with NO delegation, so the gateway refuses every governed
+     * intent — halting at the policy layer, never falling back to a broader
+     * credential.
+     */
+    async resolveStandingGrant(
+      request: ResolveStandingGrantRequest,
+    ): Promise<ResolveStandingGrantResponse> {
+      if (grants === undefined) return { ok: false, reason: "grants_not_configured" };
+      const grant = await grants.store.get(request.grantId);
+      if (grant === undefined) return { ok: false, reason: "not_found" };
+      const result = exerciseGrant(
+        grant,
+        { runId: request.runId, agent: request.agent, env: grants.env },
+        grants.ttlMs ?? 15 * 60 * 1000,
+        grants.secret,
+        Date.now(),
+      );
+      return result.ok
+        ? { ok: true, delegation: result.delegation, exercise: result.exercise }
+        : { ok: false, reason: result.reason };
     },
 
     async recordApprovalDecision(request: ApprovalDecisionRequest): Promise<{ version: number }> {

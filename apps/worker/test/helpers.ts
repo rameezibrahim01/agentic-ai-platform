@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Tracer } from "@opentelemetry/api";
+import { InMemoryGrantStore } from "@platform/identity";
 import { InMemoryEventStore } from "@platform/storage";
 import { createGateway, FakeProvider, type FakeBehavior } from "@platform/model-gateway";
 import { DEFAULT_RULES } from "@platform/policy";
@@ -17,9 +18,18 @@ export const TEST_AGENT = "stub-agent@v1";
  */
 export function makeWorld(
   script: readonly FakeBehavior[],
-  opts: { env?: string; tracer?: Tracer } = {},
+  opts: {
+    env?: string;
+    tracer?: Tracer;
+    /**
+     * Ticket 020: makes the tool gateway delegation-required and wires a
+     * grant store into the activities — the world for scheduled-run drills.
+     */
+    delegation?: { secret: string };
+  } = {},
 ) {
   const store = new InMemoryEventStore();
+  const grantStore = new InMemoryGrantStore();
   const gateway = createGateway({
     env: "test",
     allowlist: ["fake-model"],
@@ -79,7 +89,12 @@ export function makeWorld(
     ],
     egressAllowlist: [],
     env: opts.env ?? "dev",
-    nowMs: () => 1_700_000_000_000,
+    // Real clock when delegation is in play (tokens are minted against real
+    // time by the activity); the fixed instant keeps other suites reproducible.
+    nowMs: opts.delegation ? () => Date.now() : () => 1_700_000_000_000,
+    ...(opts.delegation
+      ? { delegation: { required: true, secret: opts.delegation.secret } }
+      : {}),
   });
 
   const activities = createActivities({
@@ -87,8 +102,17 @@ export function makeWorld(
     gateway,
     tools,
     ...(opts.tracer ? { tracer: opts.tracer } : {}),
+    ...(opts.delegation
+      ? {
+          grants: {
+            store: grantStore,
+            secret: opts.delegation.secret,
+            env: opts.env ?? "dev",
+          },
+        }
+      : {}),
   });
-  return { store, activities, readExecuted, writeExecuted };
+  return { store, activities, readExecuted, writeExecuted, grantStore };
 }
 
 export const runInput = (runId: string) => ({

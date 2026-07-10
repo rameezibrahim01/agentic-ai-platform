@@ -12,6 +12,7 @@ const {
   startRun,
   callModel,
   resolveIntent,
+  resolveStandingGrant,
   recordApprovalDecision,
   executeApprovedIntent,
   completeRun,
@@ -49,6 +50,12 @@ export interface AgentRunInput {
   approverGroup?: string;
   /** Delegated credential for governed intents; never inspected here (ticket 019). */
   delegation?: string;
+  /**
+   * Standing grant resolved per occurrence at run start (ticket 020). A dead
+   * grant means the run proceeds WITHOUT a delegation — governed intents are
+   * then refused at the gateway, never retried on a broader credential.
+   */
+  standingGrantId?: string;
 }
 
 export type AgentRunResult =
@@ -74,11 +81,33 @@ export async function agentRun(input: AgentRunInput): Promise<AgentRunResult> {
     pendingDecision = decision;
   });
 
+  // Standing grant (ticket 020): resolved fresh at every occurrence, so a
+  // revocation takes effect on the very next run. On success the exercise is
+  // recorded inside the run's audited input; on refusal the run carries NO
+  // delegation and the gateway blocks each governed intent.
+  let delegation = input.delegation;
+  let auditedInput: unknown = input.input;
+  if (input.standingGrantId !== undefined) {
+    const resolved = await resolveStandingGrant({
+      grantId: input.standingGrantId,
+      runId,
+      agent: input.agent,
+    });
+    if (resolved.ok) {
+      delegation = resolved.delegation;
+      const base =
+        input.input !== null && typeof input.input === "object" && !Array.isArray(input.input)
+          ? (input.input as Record<string, unknown>)
+          : { value: input.input };
+      auditedInput = { ...base, grantExercise: resolved.exercise };
+    }
+  }
+
   let { version } = await startRun({
     runId,
     agent: input.agent,
     principal: input.principal,
-    input: input.input,
+    input: auditedInput,
   });
 
   for (;;) {
@@ -150,7 +179,7 @@ export async function agentRun(input: AgentRunInput): Promise<AgentRunResult> {
       args: model.args,
       approverGroup,
       approvalTtlMs,
-      ...(input.delegation !== undefined ? { delegation: input.delegation } : {}),
+      ...(delegation !== undefined ? { delegation } : {}),
     });
     version = resolved.version;
 
@@ -180,7 +209,7 @@ export async function agentRun(input: AgentRunInput): Promise<AgentRunResult> {
           principal: input.principal,
           tool: model.tool,
           args: model.args,
-          ...(input.delegation !== undefined ? { delegation: input.delegation } : {}),
+          ...(delegation !== undefined ? { delegation } : {}),
         });
         version = executed.version;
       }

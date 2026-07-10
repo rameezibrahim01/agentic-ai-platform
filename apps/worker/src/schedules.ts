@@ -31,6 +31,11 @@ export interface AgentScheduleSpec {
   taskQueue?: string;
   /** Create paused (e.g. staging). */
   paused?: boolean;
+  /**
+   * Standing delegation grant (ticket 020): every occurrence exercises this
+   * grant at run start — the ONLY way a scheduled run gets a credential.
+   */
+  standingGrantId?: string;
 }
 
 export async function createAgentSchedule(
@@ -60,7 +65,14 @@ export async function createAgentSchedule(
       workflowType: agentRun,
       workflowId: spec.scheduleId,
       taskQueue: spec.taskQueue ?? TASK_QUEUE,
-      args: [{ ...spec.template }],
+      args: [
+        {
+          ...spec.template,
+          ...(spec.standingGrantId !== undefined
+            ? { standingGrantId: spec.standingGrantId }
+            : {}),
+        },
+      ],
     },
   });
 }

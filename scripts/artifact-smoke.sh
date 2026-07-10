@@ -51,7 +51,17 @@ if [ "$worker_ok" != true ]; then
 fi
 echo "PASS: worker RUNNING"
 
-if ! docker compose logs worker | grep -q "using Postgres event store"; then
+# Retry loop: `docker compose logs` can race the log flush (seen in CI on the
+# drills job — the line was present in the same job's failure dump).
+store_ok=false
+for _ in $(seq 1 30); do
+  if docker compose logs worker 2>/dev/null | grep -q "using Postgres event store"; then
+    store_ok=true
+    break
+  fi
+  sleep 2
+done
+if [ "$store_ok" != true ]; then
   echo "FAIL: worker is not on the Postgres event store"
   docker compose logs --tail 60 worker
   exit 1
