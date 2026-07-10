@@ -3,8 +3,27 @@
   "grants": [
     {
       "agent": "demo-agent@v1",
-      "tools": [{ "name": "notes.append", "version": "v1" }]
+      "tools": [
+        { "name": "notes.append", "version": "v1" },
+        { "name": "memo.echo", "version": "v1" }
+      ]
     }
   ],
-  "egressAllowlist": []
+  "egressAllowlist": [],
+  "mcpServers": [
+    {
+      "name": "reference-memo",
+      "command": "./node_modules/.bin/tsx",
+      "args": ["src/mcp/reference-server.ts"],
+      "tools": [
+        {
+          "name": "memo.echo",
+          "version": "v1",
+          "risk": "read",
+          "description": "Reference MCP tool wrapped via config (ticket 024).",
+          "egress": []
+        }
+      ]
+    }
+  ]
 }

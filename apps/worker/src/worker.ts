@@ -81,10 +81,16 @@ async function loadTools(): Promise<BuiltTools> {
   const configPath = process.env["TOOLS_CONFIG"];
   if (!configPath) {
     console.log("worker: no TOOLS_CONFIG — zero tools enabled, all intents will be refused");
-    return { registry: new ToolRegistry(), grants: [], executors: [], egressAllowlist: [] };
+    return {
+      registry: new ToolRegistry(),
+      grants: [],
+      executors: [],
+      egressAllowlist: [],
+      mcpClients: [],
+    };
   }
   const raw: unknown = JSON.parse(await readFile(configPath, "utf8"));
-  const built = buildTools(raw, {
+  const built = await buildTools(raw, {
     ...(process.env["NOTES_FILE"] ? { notesFile: process.env["NOTES_FILE"] } : {}),
   });
   if (!built.ok) throw new Error(`worker: TOOLS_CONFIG rejected — ${built.error}`);
