@@ -66,6 +66,9 @@ importers:
       '@platform/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@platform/identity':
+        specifier: workspace:*
+        version: link:../../packages/identity
       '@platform/model-gateway':
         specifier: workspace:*
         version: link:../../packages/model-gateway
