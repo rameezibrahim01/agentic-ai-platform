@@ -44,7 +44,15 @@ services:
       TEMPORAL_ADDRESS: temporal:7233
       TEMPORAL_NAMESPACE: default
       DATABASE_URL: postgres://platform:${POSTGRES_PASSWORD:?set in .env}@postgres:5432/platform
-      PLATFORM_ENV: pilot
+      # prod by default: governed writes pause for approval (override for the
+      # environment-split half of drill p2-1)
+      PLATFORM_ENV: ${PLATFORM_ENV:-prod}
+      TOOLS_CONFIG: /etc/platform/tools.config.json
+      NOTES_FILE: /data/notes/notes.log
+      STUB_SCRIPT: demo-write
+    volumes:
+      - "./tools.config.json:/etc/platform/tools.config.json:ro"
+      - "notes:/data/notes"
     restart: on-failure # temporal namespace setup can lag the port
 
   console:
@@ -53,7 +61,10 @@ services:
       postgres: { condition: service_healthy }
     environment:
       DATABASE_URL: postgres://platform:${POSTGRES_PASSWORD:?set in .env}@postgres:5432/platform
+      # inbox decisions reach the engine (ticket 021)
+      TEMPORAL_ADDRESS: temporal:7233
     ports: [ "3000:3000" ]
 
 volumes:
   pgdata:
+  notes:

@@ -1,0 +1,10 @@
+{
+  "tools": ["notes.append@v1"],
+  "grants": [
+    {
+      "agent": "demo-agent@v1",
+      "tools": [{ "name": "notes.append", "version": "v1" }]
+    }
+  ],
+  "egressAllowlist": []
+}

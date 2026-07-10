@@ -1,5 +1,6 @@
 export { createToolGateway } from "./gateway.js";
 export type {
+  ExecutionContext,
   IntentOutcome,
   IntentRequest,
   PolicyEvaluatedPayload,
