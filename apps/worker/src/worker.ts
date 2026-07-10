@@ -3,8 +3,9 @@ import { fileURLToPath } from "node:url";
 import { NativeConnection, Worker } from "@temporalio/worker";
 import { createPostgresEventStore, InMemoryEventStore } from "@platform/storage";
 import type { EventStore } from "@platform/storage";
-import { createGateway, FakeProvider, fakeIntent, fakeMessage } from "@platform/model-gateway";
+import { fakeIntent, fakeMessage } from "@platform/model-gateway";
 import type { FakeBehavior } from "@platform/model-gateway";
+import { buildModelGateway } from "./model-config.js";
 import { DEFAULT_RULES } from "@platform/policy";
 import { ToolRegistry } from "@platform/tool-registry";
 import { createToolGateway } from "@platform/tool-gateway";
@@ -42,12 +43,21 @@ export async function runWorker(): Promise<void> {
     console.log("worker: using in-memory event store (set DATABASE_URL for durability)");
   }
 
-  const gateway = createGateway({
+  // Real provider when a key is configured (ticket 026): key from env only,
+  // models from MODELS_CONFIG only, stub always present as the failover.
+  const modelsConfigPath = process.env["MODELS_CONFIG"];
+  const apiKey = process.env["ANTHROPIC_API_KEY"];
+  const built = buildModelGateway({
     env: platformEnv,
-    allowlist: ["stub-model"],
-    pricing: { "stub-model": { inputPerMTokUsd: 0, outputPerMTokUsd: 0 } },
-    providers: [{ name: "stub", provider: new FakeProvider(stubScript()) }],
+    stubScript: stubScript(),
+    ...(apiKey ? { apiKey } : {}),
+    ...(modelsConfigPath
+      ? { modelsConfig: JSON.parse(await readFile(modelsConfigPath, "utf8")) as unknown }
+      : {}),
   });
+  if (!built.ok) throw new Error(`worker: MODELS_CONFIG rejected — ${built.error}`);
+  console.log(`worker: ${built.summary}`);
+  const gateway = built.gateway;
 
   const tools = createToolGateway({
     ...(await loadTools()),

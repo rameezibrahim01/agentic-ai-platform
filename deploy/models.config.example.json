@@ -1,0 +1,6 @@
+{
+  "allowlist": ["claude-sonnet-5"],
+  "pricing": {
+    "claude-sonnet-5": { "inputPerMTokUsd": 3, "outputPerMTokUsd": 15 }
+  }
+}
