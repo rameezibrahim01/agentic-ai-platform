@@ -17,6 +17,7 @@ export default defineConfig({
       "@platform/tool-gateway": p("./packages/tool-gateway/src/index.ts"),
       "@platform/tool-registry": p("./packages/tool-registry/src/index.ts"),
       "@platform/telemetry": p("./packages/telemetry/src/index.ts"),
+      "@platform/templates": p("./packages/templates/src/index.ts"),
     },
   },
   test: {

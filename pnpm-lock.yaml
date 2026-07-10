@@ -29,6 +29,9 @@ importers:
       '@platform/storage':
         specifier: workspace:*
         version: link:../../packages/storage
+      '@platform/templates':
+        specifier: workspace:*
+        version: link:../../packages/templates
       '@temporalio/client':
         specifier: ^1.20.2
         version: 1.20.2
@@ -44,6 +47,9 @@ importers:
       react-dom:
         specifier: ^19.0.0
         version: 19.2.7(react@19.2.7)
+      zod:
+        specifier: ^3.23.8
+        version: 3.25.76
     devDependencies:
       '@types/pg':
         specifier: ^8.20.0
@@ -223,6 +229,22 @@ importers:
       vitest:
         specifier: ^2.1.9
         version: 2.1.9(@types/node@26.1.1)(terser@5.49.0)
+
+  packages/templates:
+    dependencies:
+      zod:
+        specifier: ^3.23.8
+        version: 3.25.76
+    devDependencies:
+      '@types/node':
+        specifier: ^20.19.43
+        version: 20.19.43
+      fast-check:
+        specifier: ^3.19.0
+        version: 3.23.2
+      vitest:
+        specifier: ^2.1.9
+        version: 2.1.9(@types/node@20.19.43)(terser@5.49.0)
 
   packages/tool-gateway:
     dependencies:

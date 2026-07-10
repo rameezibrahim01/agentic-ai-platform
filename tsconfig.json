@@ -1,15 +1,38 @@
 {
   "files": [],
   "references": [
-    { "path": "packages/auth" },
-    { "path": "packages/core" },
-    { "path": "packages/identity" },
-    { "path": "packages/storage" },
-    { "path": "packages/model-gateway" },
-    { "path": "packages/telemetry" },
-    { "path": "packages/policy" },
-    { "path": "packages/tool-registry" },
-    { "path": "packages/tool-gateway" },
-    { "path": "apps/worker" }
+    {
+      "path": "packages/auth"
+    },
+    {
+      "path": "packages/core"
+    },
+    {
+      "path": "packages/identity"
+    },
+    {
+      "path": "packages/templates"
+    },
+    {
+      "path": "packages/storage"
+    },
+    {
+      "path": "packages/model-gateway"
+    },
+    {
+      "path": "packages/telemetry"
+    },
+    {
+      "path": "packages/policy"
+    },
+    {
+      "path": "packages/tool-registry"
+    },
+    {
+      "path": "packages/tool-gateway"
+    },
+    {
+      "path": "apps/worker"
+    }
   ]
 }

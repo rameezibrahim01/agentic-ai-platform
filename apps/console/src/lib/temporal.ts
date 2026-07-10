@@ -34,3 +34,29 @@ export async function signalApprovalDecision(
   const client = await getClient();
   await client.workflow.getHandle(runId).signal("approvalDecision", decision);
 }
+
+/**
+ * Start an agentRun by workflow-type name (ticket 023) — the string keeps
+ * the worker package out of the Next bundle, same reasoning as the signal
+ * above. A duplicate workflowId is reported, not thrown: that is webhook
+ * redelivery working as designed (003 idempotency).
+ */
+export async function startAgentRunByName(
+  workflowId: string,
+  input: Record<string, unknown>,
+): Promise<"started" | "duplicate"> {
+  const client = await getClient();
+  try {
+    await client.workflow.start("agentRun", {
+      workflowId,
+      taskQueue: process.env["TEMPORAL_TASK_QUEUE"] ?? "agent-runs",
+      args: [input],
+    });
+    return "started";
+  } catch (error) {
+    if ((error as { name?: string }).name === "WorkflowExecutionAlreadyStartedError") {
+      return "duplicate";
+    }
+    throw error;
+  }
+}
