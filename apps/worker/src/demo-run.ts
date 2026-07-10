@@ -1,16 +1,41 @@
+import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { Client, Connection } from "@temporalio/client";
+import { loadAgentsConfig, resolveAgentAlias } from "./agents/registry.js";
 import { startAgentRun } from "./client.js";
 
 // Trigger the demo write run inside the artifact (ticket 021) — the smallest
 // honest mechanism to exercise the governed write path: a CLI hook run via
 // `docker compose exec worker`, not a console write UI (out of scope).
+// Since ticket 028 the agent argument may be an ALIAS: with AGENTS_CONFIG
+// mounted it resolves through the environment pointer, so promotions and
+// rollbacks change what the demo runs without touching this script.
 async function main(): Promise<void> {
   const runId = process.argv[2];
+  const agentArg = process.argv[3] ?? "demo-agent@v1";
   if (!runId) {
-    console.error("usage: tsx src/demo-run.ts <runId>");
+    console.error("usage: tsx src/demo-run.ts <runId> [agent-alias-or-version]");
     process.exit(2);
   }
+
+  let agent = agentArg;
+  let model = "stub-model";
+  let prompt = "append the drill note";
+  const agentsConfigPath = process.env["AGENTS_CONFIG"];
+  if (agentsConfigPath) {
+    const loaded = loadAgentsConfig(JSON.parse(await readFile(agentsConfigPath, "utf8")));
+    if (!loaded.ok) throw new Error(loaded.error);
+    const resolved = resolveAgentAlias(
+      loaded.config,
+      agentArg,
+      process.env["PLATFORM_ENV"] ?? "dev",
+    );
+    if (!resolved.ok) throw new Error(resolved.error);
+    agent = resolved.id;
+    model = resolved.spec.model;
+    prompt = resolved.spec.prompt;
+  }
+
   const connection = await Connection.connect({
     address: process.env["TEMPORAL_ADDRESS"] ?? "localhost:7233",
   });
@@ -21,14 +46,14 @@ async function main(): Promise<void> {
     });
     const handle = await startAgentRun(client, {
       runId,
-      agent: "demo-agent@v1",
+      agent,
       principal: "user:demo",
       input: { source: "write-drill" },
-      model: "stub-model",
-      prompt: "append the drill note",
+      model,
+      prompt,
       approvalTtlMs: 10 * 60 * 1000,
     });
-    console.log(`started run ${handle.workflowId}`);
+    console.log(`started run ${handle.workflowId} as ${agent}`);
   } finally {
     await connection.close();
   }

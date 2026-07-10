@@ -55,8 +55,11 @@ services:
       # (see models.config.example.json) and set it in .env.
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       MODELS_CONFIG: ${MODELS_CONFIG:-}
+      # agent registry + environment pointers (ticket 028)
+      AGENTS_CONFIG: /etc/platform/agents.config.json
     volumes:
       - "./tools.config.json:/etc/platform/tools.config.json:ro"
+      - "./agents.config.json:/etc/platform/agents.config.json:ro"
       - "notes:/data/notes"
     restart: on-failure # temporal namespace setup can lag the port
 
