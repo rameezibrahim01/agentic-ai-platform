@@ -55,7 +55,5 @@ jobs:
           node-version: 20
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: phase 1 exit drills (machine-checkable)
+      - name: exit drills, phases 1 + 2 (machine-checkable)
         run: ./scripts/drills/run-all.sh
-      - name: phase 2 drill 1 — reference write (ticket 021)
-        run: ./scripts/drills/drill-p2-1-write.sh
