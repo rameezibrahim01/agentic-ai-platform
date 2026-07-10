@@ -9,6 +9,8 @@ export {
 export type { PostgresStoreHandle } from "./postgres.js";
 export { migrate } from "./migrate.js";
 export type { AppliedMigration } from "./migrate.js";
+export { InMemoryScoreStore, PostgresScoreStore, runScoreSchema } from "./scores.js";
+export type { RecordScoreResult, RunScore, ScoreStore } from "./scores.js";
 export type {
   AppendResult,
   EventStore,
