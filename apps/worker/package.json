@@ -7,6 +7,7 @@
   "dependencies": {
     "@opentelemetry/api": "^1.9.1",
     "@platform/core": "workspace:*",
+    "@platform/evals": "workspace:*",
     "@platform/identity": "workspace:*",
     "@platform/model-gateway": "workspace:*",
     "@platform/policy": "workspace:*",

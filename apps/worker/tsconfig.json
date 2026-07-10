@@ -4,15 +4,36 @@
     "outDir": "dist",
     "rootDir": "src"
   },
-  "include": ["src"],
+  "include": [
+    "src"
+  ],
   "references": [
-    { "path": "../../packages/core" },
-    { "path": "../../packages/identity" },
-    { "path": "../../packages/storage" },
-    { "path": "../../packages/model-gateway" },
-    { "path": "../../packages/telemetry" },
-    { "path": "../../packages/policy" },
-    { "path": "../../packages/tool-registry" },
-    { "path": "../../packages/tool-gateway" }
+    {
+      "path": "../../packages/core"
+    },
+    {
+      "path": "../../packages/evals"
+    },
+    {
+      "path": "../../packages/identity"
+    },
+    {
+      "path": "../../packages/storage"
+    },
+    {
+      "path": "../../packages/model-gateway"
+    },
+    {
+      "path": "../../packages/telemetry"
+    },
+    {
+      "path": "../../packages/policy"
+    },
+    {
+      "path": "../../packages/tool-registry"
+    },
+    {
+      "path": "../../packages/tool-gateway"
+    }
   ]
 }
