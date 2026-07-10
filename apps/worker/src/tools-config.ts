@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { z } from "zod";
 import { riskTierSchema } from "@platform/core";
 import { refKey, ToolRegistry } from "@platform/tool-registry";
@@ -6,6 +7,8 @@ import type { ToolExecutor } from "@platform/tool-gateway";
 import { notesAppendContract, notesAppendExecutor } from "./tools/notes.js";
 import { McpStdioClient } from "./mcp/client.js";
 import { wrapMcpTool } from "./mcp/wrap.js";
+import { generateOpenApiTool } from "./openapi/generate.js";
+import type { OpenApiAuthScheme } from "./openapi/generate.js";
 
 // Config-driven tool wiring (tickets 021 + 024, architecture §6): the worker
 // ships with a CATALOG of built-in tool implementations and an MCP transport,
@@ -43,6 +46,30 @@ const mcpServerConfigSchema = z
 
 export type McpServerConfig = z.infer<typeof mcpServerConfigSchema>;
 
+const openapiToolsConfigSchema = z
+  .object({
+    /** Path to a LOCAL OpenAPI 3.0 JSON document (no spec fetching). */
+    spec: z.string().min(1),
+    /** How the API_TOKEN secret becomes a header, when the API needs auth. */
+    auth: z
+      .union([z.literal("bearer"), z.string().regex(/^header:[A-Za-z0-9-]+$/)])
+      .optional(),
+    /** Only these operations become tools; risk assigned here, never inferred. */
+    operations: z
+      .array(
+        z
+          .object({
+            operationId: z.string().min(1),
+            version: z.string().min(1),
+            risk: riskTierSchema,
+            egress: z.array(z.string()).optional(),
+          })
+          .strict(),
+      )
+      .min(1),
+  })
+  .strict();
+
 export const toolsConfigSchema = z
   .object({
     /** Catalog refs ("name@version") this deployment enables. */
@@ -54,6 +81,7 @@ export const toolsConfigSchema = z
       .default([]),
     egressAllowlist: z.array(z.string()).default([]),
     mcpServers: z.array(mcpServerConfigSchema).default([]),
+    openapiTools: z.array(openapiToolsConfigSchema).default([]),
   })
   .strict();
 
@@ -62,6 +90,8 @@ export type ToolsConfig = z.infer<typeof toolsConfigSchema>;
 export interface CatalogDeps {
   /** Absolute path of the mounted notes file (required by notes.append@v1). */
   notesFile?: string;
+  /** Injectable transport for generated OpenAPI tools (tests never hit the network). */
+  fetchFn?: typeof fetch;
 }
 
 interface CatalogEntry {
@@ -162,6 +192,41 @@ export async function buildTools(
       return failBoot(
         `mcp server ${server.name}: ${error instanceof Error ? error.message : String(error)}`,
       );
+    }
+  }
+
+  // generated OpenAPI tools (030): local spec + config-listed operations only
+  for (const entry of config.openapiTools) {
+    let doc: unknown;
+    try {
+      doc = JSON.parse(await readFile(entry.spec, "utf8"));
+    } catch (error) {
+      return failBoot(
+        `openapi spec ${entry.spec}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    for (const operation of entry.operations) {
+      const generated = generateOpenApiTool(
+        doc,
+        {
+          operationId: operation.operationId,
+          version: operation.version,
+          risk: operation.risk,
+          ...(operation.egress !== undefined ? { egress: operation.egress } : {}),
+        },
+        {
+          ...(entry.auth !== undefined ? { auth: entry.auth as OpenApiAuthScheme } : {}),
+          ...(deps.fetchFn !== undefined ? { fetchFn: deps.fetchFn } : {}),
+        },
+      );
+      if (!generated.ok) return failBoot(generated.error);
+      const ref = refKey(generated.contract);
+      const registered = registry.register(generated.contract);
+      if (!registered.ok) {
+        return failBoot(`openapi tool ${ref} collides with an already-registered tool`);
+      }
+      executors.push(generated.executor);
+      enabled.add(ref);
     }
   }
 
