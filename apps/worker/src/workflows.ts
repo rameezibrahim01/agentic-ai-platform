@@ -5,12 +5,18 @@
 // waits are a signal + timer race, and expiry defaults to deny (§8).
 import { condition, defineSignal, proxyActivities, setHandler, workflowInfo } from "@temporalio/workflow";
 import { checkBudget, detectLoop } from "@platform/core";
-import type { BudgetPolicy, BudgetReason, LoopDetectionConfig, ToolIntentLike } from "@platform/core";
+import type {
+  BudgetExceededReason,
+  BudgetPolicy,
+  LoopDetectionConfig,
+  ToolIntentLike,
+} from "@platform/core";
 import type { Activities } from "./activities.js";
 
 const {
   startRun,
   callModel,
+  checkLimits,
   resolveIntent,
   resolveStandingGrant,
   recordApprovalDecision,
@@ -62,14 +68,14 @@ export type AgentRunResult =
   | { outcome: "completed"; version: number; steps: number }
   | {
       outcome: "budget_exceeded";
-      reason: BudgetReason | "LoopDetected";
+      reason: BudgetExceededReason;
       version: number;
       steps: number;
     };
 
 export async function agentRun(input: AgentRunInput): Promise<AgentRunResult> {
   const runId = input.runId ?? workflowInfo().workflowId; // deterministic API
-  const budget: BudgetPolicy = input.budget ?? { maxSteps: 10 };
+  let budget: BudgetPolicy = input.budget ?? { maxSteps: 10 };
   const approvalTtlMs = input.approvalTtlMs ?? 60 * 60 * 1000;
   const approverGroup = input.approverGroup ?? "approvers";
   const startedAt = Date.now(); // deterministic workflow time
@@ -110,6 +116,35 @@ export async function agentRun(input: AgentRunInput): Promise<AgentRunResult> {
     input: auditedInput,
   });
 
+  // Operator limits at start (ticket 033): kill switch + rate limit, audited
+  // as an engine-terminated run; platform caps CEILING the requested budget —
+  // the request does not negotiate.
+  const startLimits = await checkLimits({ agent: input.agent, phase: "start" });
+  if (!startLimits.ok) {
+    const failed = await recordBudgetFailure({
+      runId,
+      expectedVersion: version,
+      reason: startLimits.reason,
+      detail: startLimits.detail,
+    });
+    return {
+      outcome: "budget_exceeded",
+      reason: startLimits.reason,
+      version: failed.version,
+      steps: 0,
+    };
+  }
+  if (startLimits.budgetCaps !== undefined) {
+    const caps = startLimits.budgetCaps;
+    const fields = ["maxSteps", "maxTokens", "maxCostUsd", "maxWallMs"] as const;
+    const merged: BudgetPolicy = {};
+    for (const field of fields) {
+      const values = [budget[field], caps[field]].filter((v): v is number => v !== undefined);
+      if (values.length > 0) merged[field] = Math.min(...values);
+    }
+    budget = merged;
+  }
+
   for (;;) {
     // Engine enforcement BEFORE every step — the model is never asked to behave.
     const budgetCheck = checkBudget(usage, budget, Date.now());
@@ -123,6 +158,23 @@ export async function agentRun(input: AgentRunInput): Promise<AgentRunResult> {
       return {
         outcome: "budget_exceeded",
         reason: budgetCheck.reason,
+        version: failed.version,
+        steps: usage.stepCount,
+      };
+    }
+
+    // a flipped kill switch stops in-flight runs at their next step
+    const stepLimits = await checkLimits({ agent: input.agent, phase: "step" });
+    if (!stepLimits.ok) {
+      const failed = await recordBudgetFailure({
+        runId,
+        expectedVersion: version,
+        reason: stepLimits.reason,
+        detail: stepLimits.detail,
+      });
+      return {
+        outcome: "budget_exceeded",
+        reason: stepLimits.reason,
         version: failed.version,
         steps: usage.stepCount,
       };

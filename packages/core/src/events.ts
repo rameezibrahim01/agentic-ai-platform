@@ -106,6 +106,9 @@ export const budgetExceededReasonSchema = z.enum([
   "MaxCostUsd",
   "MaxWallMs",
   "LoopDetected",
+  // ticket 033: operator levers, engine-enforced like every budget
+  "KilledBySwitch",
+  "RateLimited",
 ]);
 export type BudgetExceededReason = z.infer<typeof budgetExceededReasonSchema>;
 

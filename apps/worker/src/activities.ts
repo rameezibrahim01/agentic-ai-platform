@@ -1,8 +1,10 @@
 import type { Tracer } from "@opentelemetry/api";
-import type { BudgetExceededReason, RunEvent } from "@platform/core";
+import type { BudgetExceededReason, BudgetPolicy, RunEvent } from "@platform/core";
 import { exerciseGrant } from "@platform/identity";
 import type { GrantExercise, GrantStore } from "@platform/identity";
 import type { EventStore } from "@platform/storage";
+import { checkKillSwitch, countRecentStarts, NO_LIMITS } from "./limits.js";
+import type { LimitsConfig } from "./limits.js";
 import type { ModelGateway, Usage } from "@platform/model-gateway";
 import type { ToolGateway } from "@platform/tool-gateway";
 import { emitRunTrace } from "@platform/telemetry";
@@ -29,6 +31,8 @@ export interface WorkerDeps {
     /** Per-occurrence delegation ttl; always capped at the grant's expiry. Default 15 min. */
     ttlMs?: number;
   };
+  /** Optional (ticket 033): operator limits, re-read per check so flips are instant. */
+  limits?: { load: () => Promise<LimitsConfig> };
 }
 
 export interface StartRunRequest {
@@ -94,6 +98,16 @@ export interface ExecuteApprovedRequest {
   delegation?: string;
 }
 
+export interface CheckLimitsRequest {
+  agent: string;
+  /** "start" also enforces the rate limit; "step" is the kill-switch check. */
+  phase: "start" | "step";
+}
+
+export type CheckLimitsResponse =
+  | { ok: true; budgetCaps?: BudgetPolicy }
+  | { ok: false; reason: "KilledBySwitch" | "RateLimited"; detail: string };
+
 export interface ResolveStandingGrantRequest {
   grantId: string;
   runId: string;
@@ -129,7 +143,7 @@ export function parseToolId(tool: string): { name: string; version: string } {
   return { name: tool.slice(0, at), version: tool.slice(at + 1) };
 }
 
-export function createActivities({ store, gateway, tools, tracer, grants }: WorkerDeps) {
+export function createActivities({ store, gateway, tools, tracer, grants, limits }: WorkerDeps) {
   // One trace per run, emitted once when the run reaches a terminal event
   // (deduped retries do not re-emit).
   async function emitTerminalTrace(runId: string): Promise<void> {
@@ -139,6 +153,36 @@ export function createActivities({ store, gateway, tools, tracer, grants }: Work
   }
 
   return {
+    /**
+     * Operator limits (ticket 033), engine-enforced: kill switches at run
+     * start AND before every step (a flipped switch stops in-flight runs at
+     * their next step); the rate limit counts RunStarted events in the log —
+     * the audit trail is the counter. Config re-reads per call, so flipping
+     * the mounted file takes effect in seconds without a restart.
+     */
+    async checkLimits(request: CheckLimitsRequest): Promise<CheckLimitsResponse> {
+      const config = limits === undefined ? NO_LIMITS : await limits.load();
+      const switchCheck = checkKillSwitch(config, request.agent);
+      if (switchCheck.tripped) {
+        return { ok: false, reason: "KilledBySwitch", detail: switchCheck.detail };
+      }
+      const perHour = config.rateLimits?.runsPerHourPerAgent;
+      if (request.phase === "start" && perHour !== undefined) {
+        const recent = await countRecentStarts(store, request.agent, Date.now());
+        if (recent > perHour) {
+          return {
+            ok: false,
+            reason: "RateLimited",
+            detail: `${recent} starts in the last hour exceeds ${perHour}/h for ${request.agent}`,
+          };
+        }
+      }
+      return {
+        ok: true,
+        ...(config.budgetCaps !== undefined ? { budgetCaps: config.budgetCaps } : {}),
+      };
+    },
+
     async startRun(request: StartRunRequest): Promise<{ version: number }> {
       const event: RunEvent = {
         type: "RunStarted",

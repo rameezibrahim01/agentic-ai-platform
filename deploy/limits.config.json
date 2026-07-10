@@ -1,0 +1,4 @@
+{
+  "killSwitches": { "global": false, "agents": {} },
+  "rateLimits": { "runsPerHourPerAgent": 120 }
+}
