@@ -1,7 +1,11 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { NativeConnection, Worker } from "@temporalio/worker";
-import { createPostgresEventStore, InMemoryEventStore } from "@platform/storage";
+import {
+  createPostgresEventStore,
+  InMemoryEventStore,
+  makeEncryptedEventCodec,
+} from "@platform/storage";
 import type { EventStore } from "@platform/storage";
 import { fakeIntent, fakeMessage } from "@platform/model-gateway";
 import type { FakeBehavior } from "@platform/model-gateway";
@@ -32,13 +36,20 @@ export async function runWorker(): Promise<void> {
   const databaseUrl = process.env["DATABASE_URL"];
   const platformEnv = process.env["PLATFORM_ENV"] ?? "dev";
 
+  // BYOK-style payload encryption (ticket 035): the client's key makes the
+  // logs readable; without it stored rows stay dark. Key from env only.
+  const dataKey = process.env["PLATFORM_DATA_KEY"];
+  const codec = dataKey ? makeEncryptedEventCodec(dataKey) : undefined;
+
   let store: EventStore;
   let closeStore: () => Promise<void> = async () => {};
   if (databaseUrl) {
-    const handle = await createPostgresEventStore(databaseUrl); // runs migrations
+    const handle = await createPostgresEventStore(databaseUrl, codec); // runs migrations
     store = handle.store;
     closeStore = handle.close;
-    console.log("worker: using Postgres event store (migrations applied)");
+    console.log(
+      `worker: using Postgres event store (migrations applied)${codec ? "; payload encryption ON" : ""}`,
+    );
   } else {
     store = new InMemoryEventStore();
     console.log("worker: using in-memory event store (set DATABASE_URL for durability)");

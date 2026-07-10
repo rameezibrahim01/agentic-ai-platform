@@ -10,7 +10,7 @@ that need a second tenant or a customer's SIEM stay human-owned below.
 | # | Drill | Executable form | Status |
 |---|-------|-----------------|--------|
 | 1 | Audit export (tamper evidence) | `drill-p4-1-audit-export.sh` | CI ✅ |
-| 2 | Key revocation | `drill-p4-2-key-revocation.sh` (ticket 035) | pending 035 |
+| 2 | Key revocation | `drill-p4-2-key-revocation.sh` | CI ✅ |
 | 3 | SIEM test | customer's security team ingests + answers the auditor's question from THEIR tooling | **OPEN** (human) |
 | 4 | Onboarding test | second tenant, SSO/SCIM, zero vendor-side steps | **OPEN** (needs tenancy) |
 
@@ -26,6 +26,22 @@ under-which-rule is answerable from the NDJSON alone.
 
 The CLI form: `tsx apps/worker/src/audit-export-cli.ts ndjson` against the
 deployed store; the chain head prints to stderr for out-of-band recording.
+
+## Drill 2 — key revocation
+
+**What runs (CI, against the real compose artifact):** boot with a client
+data key (`PLATFORM_DATA_KEY`) → the worker reports payload encryption ON →
+a governed write executes → the raw `run_events` rows contain **no plaintext
+markers** (agent, tool, note text, event types) and are visibly AES-256-GCM
+envelopes → **revoke** (restart worker + console without the key): the run
+is honestly absent from the console, reads are typed failures, and Temporal,
+Postgres, and the console itself stay healthy → **restore** the key and
+everything reads again. The key never appears in logs/events/traces — the
+022 secrets scan runs its entire pass over an encrypted store with a seeded
+key in the scan list.
+
+Per-tenant keys and KMS sourcing arrive with tenancy; the key's SOURCE is
+deliberately the client's problem (env/mounted secret is the interface).
 
 ## Human-owned rows
 
