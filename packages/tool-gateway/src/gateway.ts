@@ -19,9 +19,21 @@ import { digestOf } from "./digest.js";
 // server-side — they exist only between the gateway and the executor
 // (CLAUDE.md #2, #4).
 
+/** Request identity handed to executors (ticket 021) — audit-relevant fields
+ * only, never the credential itself. */
+export interface ExecutionContext {
+  runId: string;
+  agent: string;
+  principal: string;
+}
+
 export interface ToolExecutor {
   ref: ToolRef;
-  execute(args: unknown, secrets: Readonly<Record<string, string>>): Promise<unknown>;
+  execute(
+    args: unknown,
+    secrets: Readonly<Record<string, string>>,
+    context: ExecutionContext,
+  ): Promise<unknown>;
 }
 
 export interface IntentRequest {
@@ -244,7 +256,11 @@ export function createToolGateway(options: ToolGatewayOptions): ToolGateway {
     const startedAt = nowMs();
     let rawResult: unknown;
     try {
-      rawResult = await executor.execute(input.value, options.secrets?.[toolId] ?? {});
+      rawResult = await executor.execute(input.value, options.secrets?.[toolId] ?? {}, {
+        runId: request.runId,
+        agent: request.agent,
+        principal: request.principal,
+      });
     } catch (error) {
       return refuse(
         {
