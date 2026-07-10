@@ -11,6 +11,9 @@
       "path": "packages/identity"
     },
     {
+      "path": "packages/evals"
+    },
+    {
       "path": "packages/templates"
     },
     {
