@@ -59,6 +59,8 @@ services:
       AGENTS_CONFIG: /etc/platform/agents.config.json
       # operator limits (ticket 033): edit the mounted file to flip switches
       LIMITS_CONFIG: /etc/platform/limits.config.json
+      # client-provided data key (ticket 035): empty = plaintext logs
+      PLATFORM_DATA_KEY: ${PLATFORM_DATA_KEY:-}
     volumes:
       - "./tools.config.json:/etc/platform/tools.config.json:ro"
       - "./agents.config.json:/etc/platform/agents.config.json:ro"
@@ -76,6 +78,8 @@ services:
       TEMPORAL_ADDRESS: temporal:7233
       # read-only limits surface (ticket 033)
       LIMITS_CONFIG: /etc/platform/limits.config.json
+      # same data key as the worker (ticket 035): empty = plaintext logs
+      PLATFORM_DATA_KEY: ${PLATFORM_DATA_KEY:-}
     volumes:
       - "./limits.config.json:/etc/platform/limits.config.json:ro"
     ports: [ "3000:3000" ]

@@ -6,7 +6,7 @@ import {
   SimpleSpanProcessor,
 } from "@opentelemetry/sdk-trace-base";
 import { mintDelegation } from "@platform/identity";
-import { InMemoryEventStore } from "@platform/storage";
+import { InMemoryEventStore, makeEncryptedEventCodec } from "@platform/storage";
 import { AnthropicProvider, createGateway } from "@platform/model-gateway";
 import { DEFAULT_RULES } from "@platform/policy";
 import { ToolRegistry } from "@platform/tool-registry";
@@ -25,6 +25,7 @@ import { buildModelGateway } from "../src/model-config.js";
 const MODEL_KEY = "sk-ant-drill-seeded-model-key-0123456789";
 const TOOL_SECRET = "drill-seeded-tool-secret-abcdefghij";
 const DELEGATION_SECRET = "drill-seeded-delegation-signing-secret";
+const DATA_KEY = "0123456789abcdef".repeat(4); // seeded PLATFORM_DATA_KEY (035)
 
 const AGENT = "vault-agent@v1";
 const PRINCIPAL = "user:auditor";
@@ -69,7 +70,9 @@ function anthropicResponse(body: unknown): Response {
 }
 
 async function runSeededPass() {
-  const store = new InMemoryEventStore();
+  // the whole pass runs over an ENCRYPTED store (035): the data key is in
+  // use for every append/load, and must appear in no surface we scan
+  const store = new InMemoryEventStore(makeEncryptedEventCodec(DATA_KEY));
   const exporter = new InMemorySpanExporter();
   const provider = new BasicTracerProvider({
     spanProcessors: [new SimpleSpanProcessor(exporter)],
@@ -229,7 +232,7 @@ async function runSeededPass() {
   return { corpus, fetchCalls, secretsSeen, delegation, events: loaded!.events };
 }
 
-const SEEDED = [MODEL_KEY, TOOL_SECRET, DELEGATION_SECRET];
+const SEEDED = [MODEL_KEY, TOOL_SECRET, DELEGATION_SECRET, DATA_KEY];
 
 describe("secrets scan (ticket 022, exit drill 5)", () => {
   beforeEach(() => vi.restoreAllMocks());

@@ -1,6 +1,8 @@
 import pg from "pg";
-import { parseEvent, replay } from "@platform/core";
+import { replay } from "@platform/core";
 import type { RunEvent } from "@platform/core";
+import { CorruptEventLogError, plaintextCodec } from "./codec.js";
+import type { EventCodec } from "./codec.js";
 import type {
   AppendResult,
   DeleteRunResult,
@@ -11,21 +13,7 @@ import type {
 } from "./store.js";
 import { migrate } from "./migrate.js";
 
-/**
- * A stored row failed core's parseEvent — external tampering or a broken
- * writer. Named error so callers can catch it specifically instead of
- * receiving a bare zod exception from deep inside.
- */
-export class CorruptEventLogError extends Error {
-  constructor(
-    readonly runId: string,
-    readonly seq: number,
-    detail: string,
-  ) {
-    super(`corrupt event log for run ${runId} at seq ${seq}: ${detail}`);
-    this.name = "CorruptEventLogError";
-  }
-}
+export { CorruptEventLogError } from "./codec.js";
 
 /**
  * EventStore on Postgres (ticket 006). Append is one transaction: a per-run
@@ -34,7 +22,10 @@ export class CorruptEventLogError extends Error {
  * 002's conformance suite unchanged.
  */
 export class PostgresEventStore implements EventStore {
-  constructor(private readonly pool: pg.Pool) {}
+  constructor(
+    private readonly pool: pg.Pool,
+    private readonly codec: EventCodec = plaintextCodec,
+  ) {}
 
   async append(
     runId: string,
@@ -57,7 +48,8 @@ export class PostgresEventStore implements EventStore {
       if (events.length > 0) {
         const params: unknown[] = [];
         const tuples = events.map((event, i) => {
-          params.push(runId, expectedVersion + i, JSON.stringify(event));
+          const seq = expectedVersion + i;
+          params.push(runId, seq, JSON.stringify(this.codec.encode(event, { runId, seq })));
           const base = i * 3;
           return `($${base + 1}, $${base + 2}, $${base + 3}::jsonb)`;
         });
@@ -84,11 +76,11 @@ export class PostgresEventStore implements EventStore {
     if (result.rows.length === 0) return null;
     const events: RunEvent[] = [];
     for (const row of result.rows) {
-      const parsed = parseEvent(row.event);
-      if (!parsed.ok) {
-        throw new CorruptEventLogError(runId, row.seq, JSON.stringify(parsed.issues));
+      const decoded = this.codec.decode(row.event, { runId, seq: row.seq });
+      if (!decoded.ok) {
+        throw new CorruptEventLogError(runId, row.seq, decoded.reason);
       }
-      events.push(parsed.event);
+      events.push(decoded.event);
     }
     return { events, version: events.length };
   }
@@ -120,13 +112,13 @@ export class PostgresEventStore implements EventStore {
     for (const row of result.rows) {
       const events: RunEvent[] = [];
       let corrupt = false;
-      for (const raw of row.events) {
-        const parsed = parseEvent(raw);
-        if (!parsed.ok) {
+      for (const [seq, raw] of row.events.entries()) {
+        const decoded = this.codec.decode(raw, { runId: row.run_id, seq });
+        if (!decoded.ok) {
           corrupt = true;
           break;
         }
-        events.push(parsed.event);
+        events.push(decoded.event);
       }
       if (corrupt) continue; // parity with InMemoryEventStore: skip unreplayable logs
       const replayed = replay(events);
@@ -154,9 +146,10 @@ export interface PostgresStoreHandle {
 /** Connect, run forward-only migrations, return a ready store. */
 export async function createPostgresEventStore(
   connectionString: string,
+  codec?: EventCodec,
 ): Promise<PostgresStoreHandle> {
   const pool = new pg.Pool({ connectionString });
   await migrate(pool);
-  const store = new PostgresEventStore(pool);
+  const store = new PostgresEventStore(pool, codec);
   return { store, pool, close: () => pool.end() };
 }

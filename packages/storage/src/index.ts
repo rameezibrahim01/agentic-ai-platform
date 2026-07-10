@@ -1,6 +1,8 @@
 export const STORAGE_READY = true;
 
 export { InMemoryEventStore } from "./inmemory.js";
+export { makeEncryptedEventCodec, plaintextCodec } from "./codec.js";
+export type { DecodeResult, EventCodec, EventCodecContext } from "./codec.js";
 export {
   CorruptEventLogError,
   createPostgresEventStore,
