@@ -1,0 +1,34 @@
+{
+  "versions": [
+    {
+      "id": "demo-agent@v1",
+      "description": "reference write agent: appends one governed note per run",
+      "prompt": "append the drill note",
+      "model": "stub-model",
+      "budget": { "maxSteps": 4 },
+      "tools": [{ "name": "notes.append", "version": "v1", "risk": "write" }]
+    },
+    {
+      "id": "nightly-triage@v1",
+      "description": "scheduled triage: look tickets up, update them, report",
+      "prompt": "triage the queue",
+      "model": "stub-model",
+      "budget": { "maxSteps": 8, "maxCostUsd": 0.05 },
+      "loopDetection": { "threshold": 3 },
+      "tools": [
+        { "name": "stub.lookup", "version": "v1", "risk": "read" },
+        { "name": "ticket.update", "version": "v1", "risk": "write" }
+      ]
+    }
+  ],
+  "aliases": {
+    "demo-agent": {
+      "dev": { "current": "demo-agent@v1" },
+      "prod": { "current": "demo-agent@v1" }
+    },
+    "nightly-triage": {
+      "dev": { "current": "nightly-triage@v1" },
+      "prod": { "current": "nightly-triage@v1" }
+    }
+  }
+}
