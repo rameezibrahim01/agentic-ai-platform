@@ -50,6 +50,11 @@ services:
       TOOLS_CONFIG: /etc/platform/tools.config.json
       NOTES_FILE: /data/notes/notes.log
       STUB_SCRIPT: demo-write
+      # real model provider (ticket 026): both optional; empty = hermetic stub.
+      # MODELS_CONFIG is a path inside the container — mount your own file
+      # (see models.config.example.json) and set it in .env.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      MODELS_CONFIG: ${MODELS_CONFIG:-}
     volumes:
       - "./tools.config.json:/etc/platform/tools.config.json:ro"
       - "notes:/data/notes"

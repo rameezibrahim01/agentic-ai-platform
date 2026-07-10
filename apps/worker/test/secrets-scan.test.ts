@@ -12,6 +12,7 @@ import { DEFAULT_RULES } from "@platform/policy";
 import { ToolRegistry } from "@platform/tool-registry";
 import { createToolGateway } from "@platform/tool-gateway";
 import { createActivities } from "../src/activities.js";
+import { buildModelGateway } from "../src/model-config.js";
 
 // The secrets scan (ticket 022, Phase 2 exit drill 5): run a REAL scripted
 // pass with seeded credential material everywhere a credential legitimately
@@ -199,6 +200,17 @@ async function runSeededPass() {
     spies.forEach((spy) => spy.mockRestore());
   }
 
+  // the 026 boot summary is a log surface too — built with the seeded key
+  const bootSummary = buildModelGateway({
+    env: "prod",
+    stubScript: [{ kind: "respond", result: { kind: "message", content: "stub", usage: { tokensIn: 1, tokensOut: 1 }, model: "stub-model" } }],
+    apiKey: MODEL_KEY,
+    modelsConfig: {
+      allowlist: ["real-model"],
+      pricing: { "real-model": { inputPerMTokUsd: 3, outputPerMTokUsd: 15 } },
+    },
+  });
+
   const loaded = await store.load(runId);
   const corpus = [
     ...loaded!.events.map((event) => ({
@@ -206,6 +218,9 @@ async function runSeededPass() {
       text: JSON.stringify(event),
     })),
     ...logLines.map((line, i) => ({ location: `log line ${i}`, text: line })),
+    ...(bootSummary.ok
+      ? [{ location: "boot log: model gateway summary", text: bootSummary.summary }]
+      : []),
     ...exporter.getFinishedSpans().map((span) => ({
       location: `trace span "${span.name}"`,
       text: JSON.stringify({ name: span.name, attributes: span.attributes, events: span.events }),

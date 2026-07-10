@@ -19,15 +19,21 @@ Note: expanded on owner authorization while the two human-owned Phase 1 sign-off
 Note: 025 deliberately defers approval escalation/delegation-to-a-person (needs an
 event-model design — becomes a type:design issue when scoped) and notification routing.
 
-## Phase 2 exit / Phase 3 seeds (expand when 023–025 are done)
-- With 023–025 done, Phase 2's machine-checkable surface is complete; the gate then
-  waits on the human-owned rows (partner's real write, external red-team review) in
-  docs/drills/phase-2.md — plus the two Phase 1 sign-offs still open.
-- **Phase 3 spine (per docs/build-plan.md):** eval harness (golden suites harvested
-  from real traces), CI gating on prompt/config/model changes, versioning + promotion
-  with one-click rollback, canary + online sampling, cost-per-outcome dashboards,
-  connector scale kit (OpenAPI→tool generator, connector SDK).
-- Real ANTHROPIC_API_KEY wiring for the worker (007's provider into the artifact,
-  key from env/secret only) remains a small standalone seed.
+## Batch 026–030 (Phase 3 spine) — EXPANDED into ticket files (see tickets/026…030) ✔
+Note: expanded on owner authorization while Phase 2's human-owned rows (partner's real
+write, external red-team review) and Phase 1's two sign-offs remain open. Automated
+canary stays deliberately deferred per build-plan's "safe to cut" — 028 lands manual
+promotion gated on green evals + ungated one-command rollback instead.
+
+## Phase 3 remainder / Phase 4 seeds (expand when 026–030 are done)
+- **Phase 3 drills** to record in docs/drills/phase-3.md as they become executable:
+  bad-prompt test (028), model-swap drill (one command re-evals every agent against a
+  successor model — needs 026+028), economics test (029's /costs — human-read).
+- **Connector SDK docs** + scoped read-only SQL tool (architecture §6's remaining
+  escape hatch) — follow-ups to 030.
+- **Phase 4 spine (per docs/build-plan.md):** SSO/SCIM federation of the 013 accounts,
+  tenancy hardening, WORM audit export to SIEMs, BYOK + key-revocation drill, Helm/
+  air-gap packaging of the artifact, retention + legal hold, tenant-level budgets and
+  kill switches.
 - The partner's REAL write (drill 1's true form) and the external red-team review remain
   human-owned; sandbox pool stays deferred until the partner workflow needs code execution.
