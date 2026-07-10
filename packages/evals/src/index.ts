@@ -10,3 +10,5 @@ export type {
 } from "./scenario.js";
 export { renderSuiteReport, summarizeSuite } from "./report.js";
 export type { ScenarioResult, SuiteResult } from "./report.js";
+export { judgeRubricSchema, judgeRun } from "./judge.js";
+export type { JudgeResult, JudgeRubric, JudgeVerdict } from "./judge.js";
