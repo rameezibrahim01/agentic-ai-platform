@@ -19,6 +19,7 @@ declare -a NAMES=(
   "phase 2 / drill 4 — grants (incl. 2 a.m. + revocation)"
   "phase 2 / drill 5 — secrets scan"
   "phase 2 / drill 6 — auditor's question"
+  "phase 4 / drill 1 — audit export (tamper evidence)"
 )
 declare -a SCRIPTS=(
   "drill-1-kill.sh"
@@ -33,6 +34,7 @@ declare -a SCRIPTS=(
   "drill-p2-4-grant.sh"
   "drill-p2-5-secrets-scan.sh"
   "drill-p2-6-auditor.sh"
+  "drill-p4-1-audit-export.sh"
 )
 
 declare -a RESULTS=()

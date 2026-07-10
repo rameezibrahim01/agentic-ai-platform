@@ -12,6 +12,9 @@
       "path": "../../packages/core"
     },
     {
+      "path": "../../packages/audit-export"
+    },
+    {
       "path": "../../packages/evals"
     },
     {

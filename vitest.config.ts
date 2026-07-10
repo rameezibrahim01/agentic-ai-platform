@@ -8,6 +8,7 @@ export default defineConfig({
     alias: {
       // longest key first: plain "@platform/storage" would also prefix-match the subpath
       "@platform/storage/conformance": p("./packages/storage/src/conformance.ts"),
+      "@platform/audit-export": p("./packages/audit-export/src/index.ts"),
       "@platform/auth": p("./packages/auth/src/index.ts"),
       "@platform/core": p("./packages/core/src/index.ts"),
       "@platform/evals": p("./packages/evals/src/index.ts"),

@@ -5,6 +5,9 @@
       "path": "packages/auth"
     },
     {
+      "path": "packages/audit-export"
+    },
+    {
       "path": "packages/core"
     },
     {
