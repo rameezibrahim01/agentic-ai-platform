@@ -3,6 +3,7 @@ import { parseEvent, replay } from "@platform/core";
 import type { RunEvent } from "@platform/core";
 import type {
   AppendResult,
+  DeleteRunResult,
   EventStore,
   LoadResult,
   RunFilter,
@@ -90,6 +91,25 @@ export class PostgresEventStore implements EventStore {
       events.push(parsed.event);
     }
     return { events, version: events.length };
+  }
+
+  async deleteRun(runId: string): Promise<DeleteRunResult> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      // same advisory lock as append: retention never races a writer
+      await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 42))", [runId]);
+      const result = await client.query("DELETE FROM run_events WHERE run_id = $1", [runId]);
+      await client.query("COMMIT");
+      return result.rowCount && result.rowCount > 0
+        ? { ok: true }
+        : { ok: false, error: "not_found" };
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async listRuns(filter?: RunFilter): Promise<RunSummary[]> {

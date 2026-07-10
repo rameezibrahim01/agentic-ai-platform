@@ -211,5 +211,21 @@ export function describeEventStoreContract(
       const onlyCompleted = await store.listRuns({ status: "completed" });
       expect(onlyCompleted.map((r) => r.runId)).toEqual(["run-2"]);
     });
+
+    it("deleteRun removes the whole run atomically; unknown runs are typed (ticket 032)", async () => {
+      const store = await makeStore();
+      await store.append("run-keep", 0, makeEvents("run-keep", 0, 2));
+      await store.append("run-drop", 0, makeEvents("run-drop", 0, 3));
+
+      expect(await store.deleteRun("run-drop")).toEqual({ ok: true });
+      expect(await store.load("run-drop")).toBeNull(); // no partial log, ever
+      expect(await store.deleteRun("run-drop")).toEqual({ ok: false, error: "not_found" });
+      expect(await store.deleteRun("run-never")).toEqual({ ok: false, error: "not_found" });
+
+      // neighbors untouched, and the deleted runId is appendable again from 0
+      expect((await store.load("run-keep"))?.version).toBe(2);
+      const reborn = await store.append("run-drop", 0, makeEvents("run-drop", 0, 1));
+      expect(reborn).toEqual({ ok: true, version: 1 });
+    });
   });
 }
