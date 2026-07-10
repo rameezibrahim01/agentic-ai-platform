@@ -1,3 +1,5 @@
+import { getOidcRuntime } from "../../lib/oidc";
+
 const cell: React.CSSProperties = { padding: "4px 8px" };
 
 export default async function LoginPage({
@@ -6,6 +8,9 @@ export default async function LoginPage({
   searchParams: Promise<{ error?: string }>;
 }) {
   const { error } = await searchParams;
+  // the SSO button appears only when OIDC_CONFIG is mounted (ticket 034);
+  // local accounts remain the break-glass path either way
+  const sso = (await getOidcRuntime().catch(() => null)) !== null;
   return (
     <main>
       <h2 style={{ fontSize: 16 }}>sign in</h2>
@@ -38,6 +43,11 @@ export default async function LoginPage({
           </tbody>
         </table>
       </form>
+      {sso ? (
+        <p>
+          or <a href="/api/oidc/login">sign in with your organization (SSO)</a>
+        </p>
+      ) : null}
     </main>
   );
 }

@@ -33,12 +33,27 @@ export function issueSession(
   secret: string,
   nowMs: number,
 ): string {
-  const claims: SessionClaims = {
-    sub: account.username,
-    principal: principalFor(account),
-    roles: [...account.roles],
-    exp: nowMs + ttlMs,
-  };
+  return issueSessionFor(
+    account.username,
+    principalFor(account),
+    account.roles,
+    ttlMs,
+    secret,
+    nowMs,
+  );
+}
+
+/** Same session mechanism, second front door (ticket 034): federated logins
+ * carry the IdP subject as principal — one cookie format, one verifier. */
+export function issueSessionFor(
+  sub: string,
+  principal: string,
+  roles: readonly Role[],
+  ttlMs: number,
+  secret: string,
+  nowMs: number,
+): string {
+  const claims: SessionClaims = { sub, principal, roles: [...roles], exp: nowMs + ttlMs };
   const payload = Buffer.from(JSON.stringify(claims), "utf8").toString("base64url");
   return `${payload}.${sign(payload, secret)}`;
 }
