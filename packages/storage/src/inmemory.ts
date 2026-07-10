@@ -2,6 +2,7 @@ import { replay } from "@platform/core";
 import type { RunEvent } from "@platform/core";
 import type {
   AppendResult,
+  DeleteRunResult,
   EventStore,
   LoadResult,
   RunFilter,
@@ -35,6 +36,12 @@ export class InMemoryEventStore implements EventStore {
     const log = this.#logs.get(runId);
     if (log === undefined) return null;
     return { events: log.map((e) => structuredClone(e)), version: log.length };
+  }
+
+  async deleteRun(runId: string): Promise<DeleteRunResult> {
+    if (!this.#logs.has(runId)) return { ok: false, error: "not_found" };
+    this.#logs.delete(runId); // the whole run, atomically — never partial
+    return { ok: true };
   }
 
   async listRuns(filter?: RunFilter): Promise<RunSummary[]> {
