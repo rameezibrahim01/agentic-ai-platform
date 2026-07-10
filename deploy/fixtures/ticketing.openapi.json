@@ -1,0 +1,73 @@
+{
+  "openapi": "3.0.3",
+  "info": { "title": "Fictional Ticketing API", "version": "1.0.0" },
+  "servers": [{ "url": "https://ticketing.internal.example/api" }],
+  "paths": {
+    "/tickets/{id}": {
+      "get": {
+        "operationId": "getTicket",
+        "summary": "Fetch one ticket",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } },
+          { "name": "expand", "in": "query", "required": false, "schema": { "type": "string", "maxLength": 20 } }
+        ],
+        "responses": {
+          "200": {
+            "description": "the ticket",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Ticket" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tickets/{id}/close": {
+      "post": {
+        "operationId": "closeTicket",
+        "summary": "Close a ticket with a reason",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": { "reason": { "type": "string", "minLength": 1, "maxLength": 500 } },
+                "required": ["reason"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "the closed ticket",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Ticket" }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Ticket": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "status": { "type": "string" },
+          "subject": { "type": "string" }
+        },
+        "required": ["id", "status"],
+        "additionalProperties": true
+      }
+    }
+  }
+}
