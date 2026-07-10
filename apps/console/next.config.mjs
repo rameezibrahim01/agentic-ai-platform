@@ -3,7 +3,7 @@ const nextConfig = {
   // minimal self-contained server for the artifact image (ticket 011)
   output: "standalone",
   // workspace packages ship TypeScript source; Next transpiles them
-  transpilePackages: ["@platform/auth", "@platform/core", "@platform/storage"],
+  transpilePackages: ["@platform/auth", "@platform/core", "@platform/storage", "@platform/templates"],
   webpack: (config) => {
     // workspace packages use ESM ".js" import specifiers for ".ts" sources
     config.resolve.extensionAlias = {

@@ -15,12 +15,19 @@ Note: expanded on owner authorization while the two human-owned Phase 1 sign-off
 
 ## Batch 019–022 — EXPANDED into ticket files (see tickets/019…022) ✔
 
-## Phase 2, remaining seeds (expand when 019–022 are done)
-- **023 — Run templates + event triggers:** templates as saved shareable objects with
-  view/edit/trigger grants; registered-webhook event triggers, governed like any object.
-- **024 — MCP transport:** wrap an external MCP server as executors behind the tool
-  gateway — the moment it is wrapped it inherits the entire governance stack (architecture §6).
-- **025 — Approval UX depth:** diff-style mutation previews, sane batching of low-risk
-  changesets, delegation/escalation on SLA breach.
+## Batch 023–025 — EXPANDED into ticket files (see tickets/023…025) ✔
+Note: 025 deliberately defers approval escalation/delegation-to-a-person (needs an
+event-model design — becomes a type:design issue when scoped) and notification routing.
+
+## Phase 2 exit / Phase 3 seeds (expand when 023–025 are done)
+- With 023–025 done, Phase 2's machine-checkable surface is complete; the gate then
+  waits on the human-owned rows (partner's real write, external red-team review) in
+  docs/drills/phase-2.md — plus the two Phase 1 sign-offs still open.
+- **Phase 3 spine (per docs/build-plan.md):** eval harness (golden suites harvested
+  from real traces), CI gating on prompt/config/model changes, versioning + promotion
+  with one-click rollback, canary + online sampling, cost-per-outcome dashboards,
+  connector scale kit (OpenAPI→tool generator, connector SDK).
+- Real ANTHROPIC_API_KEY wiring for the worker (007's provider into the artifact,
+  key from env/secret only) remains a small standalone seed.
 - The partner's REAL write (drill 1's true form) and the external red-team review remain
   human-owned; sandbox pool stays deferred until the partner workflow needs code execution.
