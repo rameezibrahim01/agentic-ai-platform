@@ -7,6 +7,7 @@ import { DEFAULT_RULES } from "@platform/policy";
 import { ToolRegistry } from "@platform/tool-registry";
 import { createToolGateway } from "@platform/tool-gateway";
 import { createActivities } from "../src/activities.js";
+import { makeLimitsLoader } from "../src/limits.js";
 
 export const TEST_AGENT = "stub-agent@v1";
 
@@ -26,6 +27,8 @@ export function makeWorld(
      * grant store into the activities — the world for scheduled-run drills.
      */
     delegation?: { secret: string };
+    /** Ticket 033: mounts an operator limits file into the activities. */
+    limitsPath?: string;
   } = {},
 ) {
   const store = new InMemoryEventStore();
@@ -102,6 +105,7 @@ export function makeWorld(
     gateway,
     tools,
     ...(opts.tracer ? { tracer: opts.tracer } : {}),
+    ...(opts.limitsPath ? { limits: { load: makeLimitsLoader(opts.limitsPath) } } : {}),
     ...(opts.delegation
       ? {
           grants: {

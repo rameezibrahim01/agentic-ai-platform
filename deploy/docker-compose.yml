@@ -57,9 +57,12 @@ services:
       MODELS_CONFIG: ${MODELS_CONFIG:-}
       # agent registry + environment pointers (ticket 028)
       AGENTS_CONFIG: /etc/platform/agents.config.json
+      # operator limits (ticket 033): edit the mounted file to flip switches
+      LIMITS_CONFIG: /etc/platform/limits.config.json
     volumes:
       - "./tools.config.json:/etc/platform/tools.config.json:ro"
       - "./agents.config.json:/etc/platform/agents.config.json:ro"
+      - "./limits.config.json:/etc/platform/limits.config.json:ro"
       - "notes:/data/notes"
     restart: on-failure # temporal namespace setup can lag the port
 
@@ -71,6 +74,10 @@ services:
       DATABASE_URL: postgres://platform:${POSTGRES_PASSWORD:?set in .env}@postgres:5432/platform
       # inbox decisions reach the engine (ticket 021)
       TEMPORAL_ADDRESS: temporal:7233
+      # read-only limits surface (ticket 033)
+      LIMITS_CONFIG: /etc/platform/limits.config.json
+    volumes:
+      - "./limits.config.json:/etc/platform/limits.config.json:ro"
     ports: [ "3000:3000" ]
 
 volumes:

@@ -6,6 +6,7 @@ import type { EventStore } from "@platform/storage";
 import { fakeIntent, fakeMessage } from "@platform/model-gateway";
 import type { FakeBehavior } from "@platform/model-gateway";
 import { buildModelGateway } from "./model-config.js";
+import { makeLimitsLoader } from "./limits.js";
 import { DEFAULT_RULES } from "@platform/policy";
 import { ToolRegistry } from "@platform/tool-registry";
 import { createToolGateway } from "@platform/tool-gateway";
@@ -65,6 +66,15 @@ export async function runWorker(): Promise<void> {
     env: platformEnv,
   });
 
+  // operator limits (ticket 033): validate at boot (fail fast on a bad file),
+  // then re-read per check so switch flips take effect without a restart
+  const limitsPath = process.env["LIMITS_CONFIG"];
+  const loadLimits = makeLimitsLoader(limitsPath);
+  const boot = await loadLimits();
+  console.log(
+    `worker: limits ${limitsPath ? `from ${limitsPath}` : "not configured"}; global kill switch: ${boot.killSwitches.global}`,
+  );
+
   const connection = await NativeConnection.connect({ address });
   try {
     const worker = await Worker.create({
@@ -72,7 +82,7 @@ export async function runWorker(): Promise<void> {
       namespace,
       taskQueue: TASK_QUEUE,
       workflowsPath,
-      activities: createActivities({ store, gateway, tools }),
+      activities: createActivities({ store, gateway, tools, limits: { load: loadLimits } }),
     });
     await worker.run();
   } finally {
