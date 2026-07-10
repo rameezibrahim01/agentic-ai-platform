@@ -68,6 +68,14 @@ if [ "$store_ok" != true ]; then
 fi
 echo "PASS: worker on Postgres event store (migrations applied on boot)"
 
+# ticket 024: the artifact wraps an external MCP server's tool via config
+if ! docker compose logs worker | grep "tools enabled from config" | grep -q "memo.echo@v1"; then
+  echo "FAIL: wrapped MCP tool memo.echo@v1 not enabled from config"
+  docker compose logs --tail 60 worker
+  exit 1
+fi
+echo "PASS: MCP-wrapped tool enabled from mounted config"
+
 if ! docker compose exec -T postgres psql -U platform -d platform -Atc \
   "select count(*) from schema_migrations" | grep -qE "^[1-9]"; then
   echo "FAIL: no migrations recorded in schema_migrations"

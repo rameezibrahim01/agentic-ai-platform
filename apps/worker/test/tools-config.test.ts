@@ -12,8 +12,8 @@ const VALID = {
 };
 
 describe("config-driven tool wiring (ticket 021)", () => {
-  it("a valid config assembles registry, grants, executors, egress — from config alone", () => {
-    const built = buildTools(VALID, { notesFile: "/data/notes/notes.log" });
+  it("a valid config assembles registry, grants, executors, egress — from config alone", async () => {
+    const built = await buildTools(VALID, { notesFile: "/data/notes/notes.log" });
     expect(built.ok).toBe(true);
     if (!built.ok) return;
     expect(built.tools.registry.describeAll().map((t) => `${t.name}@${t.version}`)).toEqual([
@@ -28,25 +28,25 @@ describe("config-driven tool wiring (ticket 021)", () => {
     expect(built.tools.egressAllowlist).toEqual([]);
   });
 
-  it("boot-time refusals: unknown catalog ref, missing NOTES_FILE, grant to a ghost tool, bad shape", () => {
-    const unknown = buildTools({ ...VALID, tools: ["shell.exec@v1"] }, { notesFile: "/n" });
+  it("boot-time refusals: unknown catalog ref, missing NOTES_FILE, grant to a ghost tool, bad shape", async () => {
+    const unknown = await buildTools({ ...VALID, tools: ["shell.exec@v1"] }, { notesFile: "/n" });
     expect(unknown).toMatchObject({ ok: false, error: expect.stringContaining("shell.exec@v1") });
 
-    const noFile = buildTools(VALID, {});
+    const noFile = await buildTools(VALID, {});
     expect(noFile).toMatchObject({ ok: false, error: expect.stringContaining("NOTES_FILE") });
 
-    const ghostGrant = buildTools(
+    const ghostGrant = await buildTools(
       { ...VALID, grants: [{ agent: "a@v1", tools: [{ name: "other.tool", version: "v1" }] }] },
       { notesFile: "/n" },
     );
     expect(ghostGrant).toMatchObject({ ok: false, error: expect.stringContaining("other.tool@v1") });
 
-    expect(buildTools({ tools: "notes.append@v1" }, {}).ok).toBe(false);
-    expect(buildTools({ ...VALID, extra: true }, { notesFile: "/n" }).ok).toBe(false); // strict
+    expect((await buildTools({ tools: "notes.append@v1" }, {})).ok).toBe(false);
+    expect((await buildTools({ ...VALID, extra: true }, { notesFile: "/n" })).ok).toBe(false); // strict
   });
 
-  it("an empty tools list is a legal zero-tool deployment (everything refused at the gateway)", () => {
-    const built = buildTools({ tools: [], grants: [], egressAllowlist: [] }, {});
+  it("an empty tools list is a legal zero-tool deployment (everything refused at the gateway)", async () => {
+    const built = await buildTools({ tools: [], grants: [], egressAllowlist: [] }, {});
     expect(built.ok).toBe(true);
     if (built.ok) {
       expect(built.tools.registry.describeAll()).toEqual([]);
