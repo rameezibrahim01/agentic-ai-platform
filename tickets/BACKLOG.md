@@ -25,15 +25,22 @@ write, external red-team review) and Phase 1's two sign-offs remain open. Automa
 canary stays deliberately deferred per build-plan's "safe to cut" — 028 lands manual
 promotion gated on green evals + ungated one-command rollback instead.
 
-## Phase 3 remainder / Phase 4 seeds (expand when 026–030 are done)
-- **Phase 3 drills** to record in docs/drills/phase-3.md as they become executable:
-  bad-prompt test (028), model-swap drill (one command re-evals every agent against a
-  successor model — needs 026+028), economics test (029's /costs — human-read).
+## Batch 031–035 (Phase 4, deployable slice) — EXPANDED into ticket files (see tickets/031…035) ✔
+Scoped to what is honest single-tenant: tamper-evident audit export (031), retention +
+legal hold (032), kill switches/caps/rate limits (033), OIDC SSO federation (034),
+client-key payload encryption + revocation drill (035). Tenancy hardening, SCIM, Helm/
+air-gap packaging, and per-tenant keys stay seeded below — they need tenancy or k8s
+surfaces this codebase doesn't have yet.
+
+## Remaining seeds (expand when 031–035 are done)
+- **Tenancy hardening** (schema-per-tenant baseline) — unblocks per-tenant keys/limits
+  and SCIM provisioning; **Helm/air-gap packaging** of the artifact (needs a k8s story);
+  **key rotation/re-encryption tooling** (follow-up to 035); **run_scores retention**
+  (follow-up to 032); web-click kill-switch flipping (write-path auth design, 033 note);
+  approval escalation/delegation-to-a-person (025 note).
+- **Phase 3 drills still OPEN in docs/drills/phase-3.md:** model-swap (needs a successor
+  model + real key), economics test (human-read from /costs).
 - **Connector SDK docs** + scoped read-only SQL tool (architecture §6's remaining
   escape hatch) — follow-ups to 030.
-- **Phase 4 spine (per docs/build-plan.md):** SSO/SCIM federation of the 013 accounts,
-  tenancy hardening, WORM audit export to SIEMs, BYOK + key-revocation drill, Helm/
-  air-gap packaging of the artifact, retention + legal hold, tenant-level budgets and
-  kill switches.
 - The partner's REAL write (drill 1's true form) and the external red-team review remain
   human-owned; sandbox pool stays deferred until the partner workflow needs code execution.
