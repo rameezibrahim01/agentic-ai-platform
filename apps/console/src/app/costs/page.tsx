@@ -21,8 +21,19 @@ const THRESHOLDS = {
 const pct = (value: number): string => `${(value * 100).toFixed(0)}%`;
 
 export default async function CostsPage() {
-  await requireSession();
-  const rows = await costsView(await getStore(), await loadScores());
+  const session = await requireSession();
+  const store = await getStore(session.tenant);
+  if (store === null) {
+    return (
+      <main>
+        <p>
+          this deployment is tenanted and your session is not bound to a tenant — there is
+          nothing to show.
+        </p>
+      </main>
+    );
+  }
+  const rows = await costsView(store, await loadScores(session.tenant));
   const alarms = driftAlarms(rows, THRESHOLDS);
   return (
     <main>

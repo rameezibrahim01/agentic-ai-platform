@@ -9,7 +9,19 @@ const cell: React.CSSProperties = { border: "1px solid #ccc", padding: "4px 8px"
 
 export default async function RunsPage() {
   const session = await requireSession();
-  const rows = await runListView(await getStore());
+  const store = await getStore(session.tenant);
+  if (store === null) {
+    return (
+      <main>
+        <p>
+          this deployment is tenanted and your session is not bound to a tenant — there is
+          nothing to show. Ask an admin to set a tenant on your account (or map your IdP
+          claim), then sign in again.
+        </p>
+      </main>
+    );
+  }
+  const rows = await runListView(store);
   return (
     <main>
       <p>

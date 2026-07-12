@@ -143,3 +143,36 @@ export function mapOidcRoles(claims: IdTokenClaims, mapping: OidcRoleMapping): R
 export function oidcPrincipal(claims: IdTokenClaims): string {
   return `oidc:${claims.sub}`;
 }
+
+// ---- tenant binding (ticket 038) ----
+
+export interface OidcTenantMapping {
+  /** Which claim carries the IdP's org/workspace value (e.g. "org"). */
+  tenantClaim: string;
+  /** IdP value → platform tenant id. Unlisted values map to NOTHING. */
+  tenantMap: Record<string, string>;
+}
+
+export const oidcTenantMappingSchema = z
+  .object({
+    tenantClaim: z.string().min(1),
+    tenantMap: z.record(z.string().min(1)),
+  })
+  .strict();
+
+export type TenantMapResult =
+  | { ok: true; tenant: string }
+  | { ok: false; reason: "missing_claim" | "unmapped_tenant" };
+
+/**
+ * A tenant comes from the CONFIG map alone, and there is deliberately no
+ * default: an authenticated user whose IdP value isn't mapped gets a typed
+ * refusal — in a tenanted deployment that is a refused login, never a
+ * guessed workspace.
+ */
+export function mapOidcTenant(claims: IdTokenClaims, mapping: OidcTenantMapping): TenantMapResult {
+  const raw = (claims as Record<string, unknown>)[mapping.tenantClaim];
+  if (typeof raw !== "string" || raw.length === 0) return { ok: false, reason: "missing_claim" };
+  const tenant = mapping.tenantMap[raw];
+  return tenant === undefined ? { ok: false, reason: "unmapped_tenant" } : { ok: true, tenant };
+}

@@ -14,6 +14,8 @@ export const accountSchema = z
       .regex(/^[a-z0-9._-]+$/i, "username: letters, digits, dot, dash, underscore only"),
     passwordHash: z.string().min(1).startsWith("scrypt:"),
     roles: z.array(z.enum(ROLES)).min(1),
+    /** Tenant binding (ticket 038): set at sign-in, immutable for the session. */
+    tenant: z.string().min(1).optional(),
   })
   .strict();
 

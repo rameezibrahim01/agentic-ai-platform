@@ -3,6 +3,7 @@ import { can } from "@platform/auth";
 import { currentSession } from "../../../../lib/auth";
 import { handleBatchDecision } from "../../../../lib/changesets";
 import { getStore } from "../../../../lib/store";
+import { workflowIdFor } from "../../../../lib/tenancy";
 import { signalApprovalDecision } from "../../../../lib/temporal";
 import { pendingApprovalsView } from "../../../../lib/viewmodels";
 
@@ -33,11 +34,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     .filter((id) => id.length > 0);
   const comment = String(form.get("comment") ?? "").trim();
 
-  const store = await getStore();
+  // the SESSION tenant's store feeds loadPending, so runIds outside the
+  // tenant are refused as "not pending approval" — nothing is signalled
+  const store = await getStore(session.tenant);
+  if (store === null) {
+    return NextResponse.json(
+      { error: "this session is not bound to a tenant — nothing to decide" },
+      { status: 404 },
+    );
+  }
   const result = await handleBatchDecision(
     {
       loadPending: () => pendingApprovalsView(store),
-      signal: (runId, d) => signalApprovalDecision(runId, d),
+      signal: (runId, d) => signalApprovalDecision(workflowIdFor(runId, session.tenant), d),
     },
     {
       runIds,

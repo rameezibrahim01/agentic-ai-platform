@@ -154,3 +154,32 @@ describe("accounts file", () => {
     }
   });
 });
+
+describe("tenant-bound sessions (ticket 038)", () => {
+  const SECRET = "test-secret";
+  const base: Account = { username: "dev", passwordHash: "scrypt:00:00", roles: ["viewer"] };
+
+  it("an account's tenant rides the session and round-trips; absent stays absent", () => {
+    const bound = issueSession({ ...base, tenant: "acme" }, 60_000, SECRET, 1_000);
+    const verified = verifySession(bound, SECRET, 1_500);
+    expect(verified.ok && verified.claims.tenant).toBe("acme");
+
+    const unbound = issueSession(base, 60_000, SECRET, 1_000);
+    const plain = verifySession(unbound, SECRET, 1_500);
+    expect(plain.ok).toBe(true);
+    if (plain.ok) expect(plain.claims.tenant).toBeUndefined();
+  });
+
+  it("accounts file: tenant parses; an empty tenant is refused", () => {
+    const ok = parseAccountsFile({
+      accounts: [{ username: "a", passwordHash: "scrypt:00:00", roles: ["viewer"], tenant: "acme" }],
+    });
+    expect(ok.ok).toBe(true);
+    if (ok.ok) expect(ok.accounts[0]!.tenant).toBe("acme");
+    expect(
+      parseAccountsFile({
+        accounts: [{ username: "a", passwordHash: "scrypt:00:00", roles: ["viewer"], tenant: "" }],
+      }).ok,
+    ).toBe(false);
+  });
+});

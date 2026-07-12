@@ -35,9 +35,15 @@ function idToken(overrides: Record<string, unknown> = {}): string {
   return `${input}.${cryptoSign("RSA-SHA256", Buffer.from(input, "utf8"), privateKey).toString("base64url")}`;
 }
 
-function deps(token: string, tokenStatus = 200): CallbackDeps & { requests: string[] } {
+function deps(
+  token: string,
+  tokenStatus = 200,
+  tenancy: Partial<Pick<CallbackDeps, "tenanted" | "tenantMapping">> = {},
+): CallbackDeps & { requests: string[] } {
   const requests: string[] = [];
   return {
+    tenanted: false,
+    ...tenancy,
     issuer: "https://idp.example",
     clientId: "console-client",
     clientSecret: "cs-secret",
@@ -129,5 +135,56 @@ describe("OIDC callback flow (ticket 034)", () => {
     expect(verifyTransient(`${value}x`, SESSION_SECRET, NOW)).toBeNull();
     expect(verifyTransient(value, "other-secret", NOW)).toBeNull();
     expect(verifyTransient(value, SESSION_SECRET, NOW + 120_000)).toBeNull(); // expired
+  });
+});
+
+describe("tenant binding at the OIDC front door (ticket 038)", () => {
+  const TENANT_MAPPING = { tenantClaim: "org", tenantMap: { "acme-corp": "acme" } };
+
+  it("a mapped IdP org claim binds the session to its tenant", async () => {
+    const d = deps(idToken({ org: "acme-corp" }), 200, {
+      tenanted: true,
+      tenantMapping: TENANT_MAPPING,
+    });
+    const result = await handleOidcCallback(d, PARAMS);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.tenant).toBe("acme");
+    const session = verifySession(result.sessionToken, SESSION_SECRET, NOW + 1);
+    expect(session.ok && session.claims.tenant).toBe("acme");
+  });
+
+  it("tenanted mode refuses unmapped orgs, missing claims, and missing mappings — never a default tenant", async () => {
+    expect(
+      await handleOidcCallback(
+        deps(idToken({ org: "stranger-org" }), 200, { tenanted: true, tenantMapping: TENANT_MAPPING }),
+        PARAMS,
+      ),
+    ).toEqual({ ok: false, status: 401, error: "tenant mapping refused: unmapped_tenant" });
+    expect(
+      await handleOidcCallback(
+        deps(idToken(), 200, { tenanted: true, tenantMapping: TENANT_MAPPING }),
+        PARAMS,
+      ),
+    ).toEqual({ ok: false, status: 401, error: "tenant mapping refused: missing_claim" });
+    // tenanted deployment whose OIDC config has no tenant mapping at all:
+    // every federated login is refused rather than guessed into a workspace
+    expect(
+      await handleOidcCallback(deps(idToken({ org: "acme-corp" }), 200, { tenanted: true }), PARAMS),
+    ).toMatchObject({ ok: false, status: 401 });
+  });
+
+  it("an untenanted deployment with a mapping records the tenant; unmapped stays harmless", async () => {
+    const mapped = await handleOidcCallback(
+      deps(idToken({ org: "acme-corp" }), 200, { tenantMapping: TENANT_MAPPING }),
+      PARAMS,
+    );
+    expect(mapped.ok && mapped.tenant).toBe("acme");
+    const unmapped = await handleOidcCallback(
+      deps(idToken({ org: "elsewhere" }), 200, { tenantMapping: TENANT_MAPPING }),
+      PARAMS,
+    );
+    expect(unmapped.ok).toBe(true);
+    if (unmapped.ok) expect(unmapped.tenant).toBeUndefined();
   });
 });

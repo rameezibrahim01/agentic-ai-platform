@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getSessionSecret, SESSION_COOKIE, SESSION_TTL_MS } from "../../../../lib/auth";
 import { getOidcRuntime, handleOidcCallback, TRANSIENT_COOKIE } from "../../../../lib/oidc";
+import { isTenanted } from "../../../../lib/store";
 
 // Finish the code flow (ticket 034). All decisions live in
 // handleOidcCallback (unit-tested with injected transport + JWKS); this
@@ -25,6 +26,15 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         roleMap: runtime.config.roleMap,
         defaultRoles: runtime.config.defaultRoles,
       },
+      tenanted: isTenanted(),
+      ...(runtime.config.tenantClaim !== undefined && runtime.config.tenantMap !== undefined
+        ? {
+            tenantMapping: {
+              tenantClaim: runtime.config.tenantClaim,
+              tenantMap: runtime.config.tenantMap,
+            },
+          }
+        : {}),
       sessionSecret: getSessionSecret(),
       sessionTtlMs: SESSION_TTL_MS,
       fetchFn: fetch,

@@ -68,7 +68,18 @@ function DecisionForm({ action, extra }: { action: string; extra?: React.ReactNo
 export default async function ApprovalsPage() {
   const session = await requireSession();
   const canApprove = can(session.roles, "approve_intents");
-  const rows = withSla(await pendingApprovalsView(await getStore()), Date.now());
+  const store = await getStore(session.tenant);
+  if (store === null) {
+    return (
+      <main>
+        <p>
+          this deployment is tenanted and your session is not bound to a tenant — there is
+          nothing to show.
+        </p>
+      </main>
+    );
+  }
+  const rows = withSla(await pendingApprovalsView(store), Date.now());
   const { changesets, singles } = groupChangesets(rows);
 
   return (

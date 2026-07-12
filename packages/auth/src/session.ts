@@ -12,6 +12,9 @@ export interface SessionClaims {
   roles: Role[];
   /** epoch ms UTC (CLAUDE.md #1) */
   exp: number;
+  /** Tenant binding (ticket 038). Absent = untenanted deployment. Set only
+   * at sign-in (account record or IdP claim map) — never mutable later. */
+  tenant?: string;
 }
 
 const claimsSchema = z
@@ -20,6 +23,7 @@ const claimsSchema = z
     principal: z.string().min(1),
     roles: z.array(z.enum(ROLES)).min(1),
     exp: z.number().int().nonnegative(),
+    tenant: z.string().min(1).optional(),
   })
   .strict();
 
@@ -40,6 +44,7 @@ export function issueSession(
     ttlMs,
     secret,
     nowMs,
+    account.tenant,
   );
 }
 
@@ -52,8 +57,15 @@ export function issueSessionFor(
   ttlMs: number,
   secret: string,
   nowMs: number,
+  tenant?: string,
 ): string {
-  const claims: SessionClaims = { sub, principal, roles: [...roles], exp: nowMs + ttlMs };
+  const claims: SessionClaims = {
+    sub,
+    principal,
+    roles: [...roles],
+    exp: nowMs + ttlMs,
+    ...(tenant !== undefined ? { tenant } : {}),
+  };
   const payload = Buffer.from(JSON.stringify(claims), "utf8").toString("base64url");
   return `${payload}.${sign(payload, secret)}`;
 }

@@ -12,8 +12,10 @@ export type { SessionClaims, SessionVerification } from "./session.js";
 export {
   jwksSchema,
   mapOidcRoles,
+  mapOidcTenant,
   oidcPrincipal,
   oidcRoleMappingSchema,
+  oidcTenantMappingSchema,
   verifyIdToken,
 } from "./oidc.js";
 export type {
@@ -21,5 +23,7 @@ export type {
   IdTokenVerification,
   Jwks,
   OidcRoleMapping,
+  OidcTenantMapping,
   OidcVerifyOptions,
+  TenantMapResult,
 } from "./oidc.js";
