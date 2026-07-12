@@ -32,7 +32,12 @@ client-key payload encryption + revocation drill (035). Tenancy hardening, SCIM,
 air-gap packaging, and per-tenant keys stay seeded below — they need tenancy or k8s
 surfaces this codebase doesn't have yet.
 
-## Remaining seeds (expand when 031–035 are done)
+## Batch 036–039 (tenancy hardening) — EXPANDED into ticket files (see tickets/036…039) ✔
+The domino batch: schema-per-tenant storage (036), tenant-scoped engine lanes (037),
+tenant-bound console sessions (038), and the onboarding drill in reference form (039).
+SCIM, tenant admin/operator views, and per-tenant model/tool configs seed the next batch.
+
+## Remaining seeds (expand when 036–039 are done)
 - **Tenancy hardening** (schema-per-tenant baseline) — unblocks per-tenant keys/limits
   and SCIM provisioning; **Helm/air-gap packaging** of the artifact (needs a k8s story);
   **key rotation/re-encryption tooling** (follow-up to 035); **run_scores retention**
