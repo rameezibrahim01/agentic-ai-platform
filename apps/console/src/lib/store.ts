@@ -69,6 +69,30 @@ export async function tenantDisplayName(tenant: string | undefined): Promise<str
 }
 
 /**
+ * Every tenant's store for the operator overview (ticket 042) — construction
+ * only, no new query surface. A tenant whose store cannot be opened
+ * console-side (key not mounted here) yields null; the overview reports it
+ * as unreadable rather than pretending it is empty.
+ */
+export async function getAllTenantStores(): Promise<
+  { id: string; displayName: string; store: EventStore | null }[]
+> {
+  if (!isTenanted()) return [];
+  const tenants = await getTenants();
+  const rows: { id: string; displayName: string; store: EventStore | null }[] = [];
+  for (const [id, spec] of tenants) {
+    let store: EventStore | null = null;
+    try {
+      store = await getStore(id);
+    } catch {
+      // named-but-empty key env etc. — the operator sees "unreadable"
+    }
+    rows.push({ id, displayName: spec.displayName, store });
+  }
+  return rows;
+}
+
+/**
  * The session's store. Untenanted deployments ignore the argument and behave
  * exactly as before 038. Tenanted deployments return the tenant's isolated
  * store — or null for an unbound session or unknown tenant, which pages

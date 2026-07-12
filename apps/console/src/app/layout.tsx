@@ -1,6 +1,8 @@
 import type { ReactNode } from "react";
+import Link from "next/link";
+import { can } from "@platform/auth";
 import { currentSession } from "../lib/auth";
-import { tenantDisplayName } from "../lib/store";
+import { isTenanted, tenantDisplayName } from "../lib/store";
 
 export const metadata = {
   title: "Agentic Platform — Runs",
@@ -21,6 +23,12 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   const session = await currentSession().catch(() => null);
   const tenant = session?.tenant;
   const displayName = tenant !== undefined ? await tenantDisplayName(tenant) : null;
+  // operator identity (042): untenanted admin in a tenanted deployment
+  const operator =
+    session !== null &&
+    tenant === undefined &&
+    isTenanted() &&
+    can(session.roles, "manage_platform");
   return (
     <html lang="en">
       <body style={bodyStyle}>
@@ -30,6 +38,12 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
             <span style={{ fontWeight: "normal", color: "#555" }}>
               {" "}
               · tenant: {displayName ?? tenant} ({tenant})
+            </span>
+          ) : null}
+          {operator ? (
+            <span style={{ fontWeight: "normal", color: "#555" }}>
+              {" "}
+              · operator · <Link href="/tenants">tenants</Link>
             </span>
           ) : null}
         </h1>

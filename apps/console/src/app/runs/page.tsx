@@ -18,6 +18,10 @@ export default async function RunsPage() {
           nothing to show. Ask an admin to set a tenant on your account (or map your IdP
           claim), then sign in again.
         </p>
+        <p>
+          platform operators: the cross-tenant health view is at{" "}
+          <Link href="/tenants">tenants</Link>.
+        </p>
       </main>
     );
   }
