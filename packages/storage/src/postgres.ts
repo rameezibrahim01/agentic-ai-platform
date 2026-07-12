@@ -2,6 +2,7 @@ import pg from "pg";
 import { replay } from "@platform/core";
 import type { RunEvent } from "@platform/core";
 import { CorruptEventLogError, plaintextCodec } from "./codec.js";
+import { schemaQualifier } from "./migrate.js";
 import type { EventCodec } from "./codec.js";
 import type {
   AppendResult,
@@ -22,10 +23,15 @@ export { CorruptEventLogError } from "./codec.js";
  * 002's conformance suite unchanged.
  */
 export class PostgresEventStore implements EventStore {
+  private readonly table: string;
+
   constructor(
     private readonly pool: pg.Pool,
     private readonly codec: EventCodec = plaintextCodec,
-  ) {}
+    schema?: string,
+  ) {
+    this.table = `${schemaQualifier(schema)}run_events`;
+  }
 
   async append(
     runId: string,
@@ -37,7 +43,7 @@ export class PostgresEventStore implements EventStore {
       await client.query("BEGIN");
       await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 42))", [runId]);
       const versionResult = await client.query<{ version: number }>(
-        "SELECT count(*)::int AS version FROM run_events WHERE run_id = $1",
+        `SELECT count(*)::int AS version FROM ${this.table} WHERE run_id = $1`,
         [runId],
       );
       const actualVersion = versionResult.rows[0]?.version ?? 0;
@@ -54,7 +60,7 @@ export class PostgresEventStore implements EventStore {
           return `($${base + 1}, $${base + 2}, $${base + 3}::jsonb)`;
         });
         await client.query(
-          `INSERT INTO run_events (run_id, seq, event) VALUES ${tuples.join(", ")}`,
+          `INSERT INTO ${this.table} (run_id, seq, event) VALUES ${tuples.join(", ")}`,
           params,
         );
       }
@@ -70,7 +76,7 @@ export class PostgresEventStore implements EventStore {
 
   async load(runId: string): Promise<LoadResult | null> {
     const result = await this.pool.query<{ seq: number; event: unknown }>(
-      "SELECT seq, event FROM run_events WHERE run_id = $1 ORDER BY seq",
+      `SELECT seq, event FROM ${this.table} WHERE run_id = $1 ORDER BY seq`,
       [runId],
     );
     if (result.rows.length === 0) return null;
@@ -91,7 +97,7 @@ export class PostgresEventStore implements EventStore {
       await client.query("BEGIN");
       // same advisory lock as append: retention never races a writer
       await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 42))", [runId]);
-      const result = await client.query("DELETE FROM run_events WHERE run_id = $1", [runId]);
+      const result = await client.query(`DELETE FROM ${this.table} WHERE run_id = $1`, [runId]);
       await client.query("COMMIT");
       return result.rowCount && result.rowCount > 0
         ? { ok: true }
@@ -106,7 +112,7 @@ export class PostgresEventStore implements EventStore {
 
   async listRuns(filter?: RunFilter): Promise<RunSummary[]> {
     const result = await this.pool.query<{ run_id: string; events: unknown[] }>(
-      "SELECT run_id, jsonb_agg(event ORDER BY seq) AS events FROM run_events GROUP BY run_id ORDER BY run_id",
+      `SELECT run_id, jsonb_agg(event ORDER BY seq) AS events FROM ${this.table} GROUP BY run_id ORDER BY run_id`,
     );
     const summaries: RunSummary[] = [];
     for (const row of result.rows) {
@@ -147,9 +153,10 @@ export interface PostgresStoreHandle {
 export async function createPostgresEventStore(
   connectionString: string,
   codec?: EventCodec,
+  schema?: string,
 ): Promise<PostgresStoreHandle> {
   const pool = new pg.Pool({ connectionString });
-  await migrate(pool);
-  const store = new PostgresEventStore(pool, codec);
+  await migrate(pool, schema !== undefined ? { schema } : {});
+  const store = new PostgresEventStore(pool, codec, schema);
   return { store, pool, close: () => pool.end() };
 }

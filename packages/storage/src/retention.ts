@@ -1,4 +1,5 @@
 import type pg from "pg";
+import { schemaQualifier } from "./migrate.js";
 import type { EventStore } from "./store.js";
 
 // Retention + legal hold (ticket 032). The event log is append-only WITHIN a
@@ -80,13 +81,20 @@ const fromRow = (row: HoldRow): LegalHold => ({
 });
 
 export class PostgresHoldStore implements HoldStore {
-  constructor(private readonly pool: pg.Pool) {}
+  private readonly table: string;
+
+  constructor(
+    private readonly pool: pg.Pool,
+    schema?: string,
+  ) {
+    this.table = `${schemaQualifier(schema)}legal_holds`;
+  }
 
   async place(runId: string, by: string, reason: string, at: number): Promise<HoldResult> {
     if (!runId || !by || !reason) return { ok: false, error: "runId, by, and reason are required" };
     try {
       await this.pool.query(
-        "INSERT INTO legal_holds (run_id, placed_by, reason, placed_at) VALUES ($1, $2, $3, $4)",
+        `INSERT INTO ${this.table} (run_id, placed_by, reason, placed_at) VALUES ($1, $2, $3, $4)`,
         [runId, by, reason, at],
       );
     } catch (error) {
@@ -99,7 +107,7 @@ export class PostgresHoldStore implements HoldStore {
 
   async lift(runId: string, by: string, at: number): Promise<HoldResult> {
     const result = await this.pool.query<HoldRow>(
-      `UPDATE legal_holds SET lifted_by = $2, lifted_at = $3
+      `UPDATE ${this.table} SET lifted_by = $2, lifted_at = $3
        WHERE run_id = $1 AND lifted_at IS NULL RETURNING *`,
       [runId, by, at],
     );
@@ -109,7 +117,7 @@ export class PostgresHoldStore implements HoldStore {
 
   async isHeld(runId: string): Promise<boolean> {
     const result = await this.pool.query(
-      "SELECT 1 FROM legal_holds WHERE run_id = $1 AND lifted_at IS NULL",
+      `SELECT 1 FROM ${this.table} WHERE run_id = $1 AND lifted_at IS NULL`,
       [runId],
     );
     return (result.rowCount ?? 0) > 0;
@@ -117,7 +125,7 @@ export class PostgresHoldStore implements HoldStore {
 
   async list(): Promise<LegalHold[]> {
     const result = await this.pool.query<HoldRow>(
-      "SELECT * FROM legal_holds ORDER BY run_id, placed_at",
+      `SELECT * FROM ${this.table} ORDER BY run_id, placed_at`,
     );
     return result.rows.map(fromRow);
   }
