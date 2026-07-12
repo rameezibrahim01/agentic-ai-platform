@@ -47,6 +47,9 @@ services:
       # prod by default: governed writes pause for approval (override for the
       # environment-split half of drill p2-1)
       PLATFORM_ENV: ${PLATFORM_ENV:-prod}
+      # per-tenant overrides (ticket 041): tools.<id>.config.json /
+      # models.<id>.config.json mounted BESIDE these shared files govern
+      # that tenant's lane; absent = shared, invalid = boot failure
       TOOLS_CONFIG: /etc/platform/tools.config.json
       NOTES_FILE: /data/notes/notes.log
       STUB_SCRIPT: demo-write

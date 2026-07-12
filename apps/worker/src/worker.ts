@@ -18,6 +18,7 @@ import { ToolRegistry } from "@platform/tool-registry";
 import { createToolGateway } from "@platform/tool-gateway";
 import { createActivities } from "./activities.js";
 import { TASK_QUEUE, taskQueueFor } from "./client.js";
+import { describeLaneConfig, resolveLaneConfig } from "./tenant-configs.js";
 import { openTenantStores, parseTenantsConfig } from "./tenants.js";
 import { buildTools } from "./tools-config.js";
 import type { BuiltTools } from "./tools-config.js";
@@ -73,7 +74,15 @@ export async function runWorker(): Promise<void> {
         "worker: TENANTS_CONFIG requires DATABASE_URL — tenant isolation is schema-per-tenant Postgres",
       );
     }
-    await runTenantWorkers({ address, namespace, databaseUrl, tenantsConfigPath, gateway, tools });
+    await runTenantWorkers({
+      address,
+      namespace,
+      databaseUrl,
+      tenantsConfigPath,
+      platformEnv,
+      gateway,
+      tools,
+    });
     return;
   }
 
@@ -134,6 +143,7 @@ async function runTenantWorkers(options: {
   namespace: string;
   databaseUrl: string;
   tenantsConfigPath: string;
+  platformEnv: string;
   gateway: ModelGateway;
   tools: ToolGateway;
 }): Promise<void> {
@@ -157,9 +167,47 @@ async function runTenantWorkers(options: {
           ? makeTenantLimitsLoader(tenantLimitsPath, sharedLimitsPath)
           : makeLimitsLoader(undefined);
         const boot = await load(); // fail fast on a bad limits file
+
+        // Per-lane tool/model configs (ticket 041): `<kind>.<id>.config.json`
+        // beside the shared file governs this lane; absent reuses the shared
+        // gateway; INVALID is a boot failure for the whole process.
+        const toolsSource = await resolveLaneConfig(
+          process.env["TOOLS_CONFIG"],
+          "tools",
+          tenantId,
+        );
+        let laneTools = options.tools;
+        if (toolsSource.source === "tenant") {
+          laneTools = createToolGateway({
+            ...(await loadToolsFrom(toolsSource.path, `tenant ${tenantId}`)),
+            rules: DEFAULT_RULES,
+            env: options.platformEnv,
+          });
+        }
+        const modelsSource = await resolveLaneConfig(
+          process.env["MODELS_CONFIG"],
+          "models",
+          tenantId,
+        );
+        let laneGateway = options.gateway;
+        if (modelsSource.source === "tenant") {
+          const apiKey = process.env["ANTHROPIC_API_KEY"];
+          const built = buildModelGateway({
+            env: options.platformEnv,
+            stubScript: stubScript(),
+            ...(apiKey ? { apiKey } : {}),
+            modelsConfig: JSON.parse(await readFile(modelsSource.path, "utf8")) as unknown,
+          });
+          if (!built.ok) {
+            throw new Error(`worker: tenant ${tenantId} models config rejected — ${built.error}`);
+          }
+          laneGateway = built.gateway;
+        }
+
         console.log(
           `worker: tenant ${tenantId} → queue ${taskQueueFor(tenantId)}, schema ${tenant.schema}, ` +
-            `encryption ${tenant.spec.dataKeyEnv ? "ON" : "off"}, global kill switch: ${boot.killSwitches.global}`,
+            `encryption ${tenant.spec.dataKeyEnv ? "ON" : "off"}, global kill switch: ${boot.killSwitches.global}, ` +
+            `tools: ${describeLaneConfig(toolsSource)}, models: ${describeLaneConfig(modelsSource)}`,
         );
         workers.push(
           await Worker.create({
@@ -169,8 +217,8 @@ async function runTenantWorkers(options: {
             workflowsPath,
             activities: createActivities({
               store: tenant.store,
-              gateway: options.gateway,
-              tools: options.tools,
+              gateway: laneGateway,
+              tools: laneTools,
               limits: { load },
             }),
           }),
@@ -207,7 +255,10 @@ async function runTenantWorkers(options: {
  * config is a boot failure — never a silently-empty gateway.
  */
 async function loadTools(): Promise<BuiltTools> {
-  const configPath = process.env["TOOLS_CONFIG"];
+  return loadToolsFrom(process.env["TOOLS_CONFIG"], "shared");
+}
+
+async function loadToolsFrom(configPath: string | undefined, label: string): Promise<BuiltTools> {
   if (!configPath) {
     console.log("worker: no TOOLS_CONFIG — zero tools enabled, all intents will be refused");
     return {
@@ -222,9 +273,12 @@ async function loadTools(): Promise<BuiltTools> {
   const built = await buildTools(raw, {
     ...(process.env["NOTES_FILE"] ? { notesFile: process.env["NOTES_FILE"] } : {}),
   });
-  if (!built.ok) throw new Error(`worker: TOOLS_CONFIG rejected — ${built.error}`);
+  // the shared path keeps its exact pre-041 wording — drills grep these lines
+  const scope = label === "shared" ? "TOOLS_CONFIG" : `tools config (${label})`;
+  if (!built.ok) throw new Error(`worker: ${scope} rejected — ${built.error}`);
   const enabled = built.tools.registry.describeAll().map((t) => `${t.name}@${t.version}`);
-  console.log(`worker: tools enabled from config: ${enabled.join(", ") || "(none)"}`);
+  const suffix = label === "shared" ? "from config" : `(${label})`;
+  console.log(`worker: tools enabled ${suffix}: ${enabled.join(", ") || "(none)"}`);
   return built.tools;
 }
 
