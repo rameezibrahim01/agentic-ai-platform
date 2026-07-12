@@ -1,5 +1,6 @@
 import type pg from "pg";
 import { schemaQualifier } from "./migrate.js";
+import type { ScoreStore } from "./scores.js";
 import type { EventStore } from "./store.js";
 
 // Retention + legal hold (ticket 032). The event log is append-only WITHIN a
@@ -138,6 +139,8 @@ export interface RetentionPolicy {
 
 export interface RetentionReport {
   deleted: string[];
+  /** Ticket 044: scores deleted alongside their runs — no orphaned observations. */
+  deletedScores: string[];
   skippedHeld: string[];
   skippedActive: string[];
   skippedYoung: string[];
@@ -153,10 +156,11 @@ export async function applyRetention(
   holds: HoldStore,
   policy: RetentionPolicy,
   nowMs: number,
-  options: { dryRun?: boolean } = {},
+  options: { dryRun?: boolean; scores?: ScoreStore } = {},
 ): Promise<RetentionReport> {
   const report: RetentionReport = {
     deleted: [],
+    deletedScores: [],
     skippedHeld: [],
     skippedActive: [],
     skippedYoung: [],
@@ -180,6 +184,16 @@ export async function applyRetention(
     if (!options.dryRun) {
       const deleted = await store.deleteRun(summary.runId);
       if (!deleted.ok) continue; // raced another retention pass; nothing to report
+      if (options.scores !== undefined) {
+        // after the log delete succeeds; a run without a score is not an error
+        const scoreDeleted = await options.scores.delete(summary.runId);
+        if (scoreDeleted.ok) report.deletedScores.push(summary.runId);
+      }
+    } else if (
+      options.scores !== undefined &&
+      (await options.scores.get(summary.runId)) !== undefined
+    ) {
+      report.deletedScores.push(summary.runId);
     }
     report.deleted.push(summary.runId);
   }

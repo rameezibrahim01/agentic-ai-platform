@@ -35,6 +35,17 @@ function scoreStoreContract(name: string, make: () => Promise<ScoreStore>) {
       expect((await store.record(bad)).ok).toBe(false);
       expect(await store.get("run-bad")).toBeUndefined();
     });
+
+    it("delete is the only deletion path: typed, idempotent (ticket 044)", async () => {
+      const store = await make();
+      await store.record(SCORE);
+      expect(await store.delete(SCORE.runId)).toEqual({ ok: true });
+      expect(await store.get(SCORE.runId)).toBeUndefined();
+      expect(await store.delete(SCORE.runId)).toEqual({ ok: false, error: "not_found" });
+      expect(await store.list()).toEqual([]);
+      // a deleted run may be re-scored (one-score-per-run applies to LIVE scores)
+      expect(await store.record(SCORE)).toEqual({ ok: true });
+    });
   });
 }
 

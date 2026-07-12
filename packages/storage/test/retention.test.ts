@@ -6,10 +6,14 @@ import {
   applyRetention,
   InMemoryEventStore,
   InMemoryHoldStore,
+  InMemoryScoreStore,
+  makeEncryptedEventCodec,
   migrate,
+  PostgresEventStore,
   PostgresHoldStore,
+  PostgresScoreStore,
 } from "@platform/storage";
-import type { HoldStore } from "@platform/storage";
+import type { HoldStore, RunScore } from "@platform/storage";
 
 // Ticket 032: retention deletes whole TERMINAL runs by explicit policy;
 // legal hold beats every policy; every considered run is accounted for.
@@ -112,6 +116,64 @@ describe("retention (ticket 032)", () => {
   });
 });
 
+const scoreFor = (runId: string): RunScore => ({
+  runId,
+  agent: "a@v1",
+  rubricId: "quality@v1",
+  judgeModel: "judge",
+  scores: { grounded: 4 },
+  weightedScore: 4,
+  scoredAt: NOW - 200,
+});
+
+describe("retention parity for run_scores (ticket 044)", () => {
+  it("a deleted run's score goes with it; held and skipped runs' scores survive; no-score runs are fine", async () => {
+    const store = new InMemoryEventStore();
+    const holds = new InMemoryHoldStore();
+    const scores = new InMemoryScoreStore();
+    await store.append("run-del", 0, run("run-del", NOW - MAX_AGE - 5_000, "completed"));
+    await scores.record(scoreFor("run-del"));
+    await store.append("run-held", 0, run("run-held", NOW - MAX_AGE - 5_000, "completed"));
+    await scores.record(scoreFor("run-held"));
+    await holds.place("run-held", "user:counsel", "litigation", NOW - 1);
+    await store.append("run-young", 0, run("run-young", NOW - 10, "completed"));
+    await scores.record(scoreFor("run-young"));
+    await store.append("run-noscore", 0, run("run-noscore", NOW - MAX_AGE - 5_000, "completed"));
+
+    const report = await applyRetention(store, holds, { maxAgeMs: MAX_AGE }, NOW, { scores });
+    expect(report.deleted.sort()).toEqual(["run-del", "run-noscore"]);
+    expect(report.deletedScores).toEqual(["run-del"]); // no orphan, no phantom
+    expect(await scores.get("run-del")).toBeUndefined();
+    expect(await scores.get("run-held")).toBeDefined(); // the hold protects both
+    expect(await scores.get("run-young")).toBeDefined();
+  });
+
+  it("dry run reports the scores it WOULD delete and deletes nothing", async () => {
+    const store = new InMemoryEventStore();
+    const holds = new InMemoryHoldStore();
+    const scores = new InMemoryScoreStore();
+    await store.append("run-dry", 0, run("run-dry", NOW - MAX_AGE - 5_000, "completed"));
+    await scores.record(scoreFor("run-dry"));
+
+    const dry = await applyRetention(store, holds, { maxAgeMs: MAX_AGE }, NOW, {
+      dryRun: true,
+      scores,
+    });
+    expect(dry.deleted).toEqual(["run-dry"]);
+    expect(dry.deletedScores).toEqual(["run-dry"]);
+    expect(await store.load("run-dry")).not.toBeNull();
+    expect(await scores.get("run-dry")).toBeDefined();
+  });
+
+  it("without a score store the report shape is stable and empty", async () => {
+    const store = new InMemoryEventStore();
+    await store.append("run-x", 0, run("run-x", NOW - MAX_AGE - 5_000, "completed"));
+    const report = await applyRetention(store, new InMemoryHoldStore(), { maxAgeMs: MAX_AGE }, NOW);
+    expect(report.deleted).toEqual(["run-x"]);
+    expect(report.deletedScores).toEqual([]);
+  });
+});
+
 function holdStoreContract(name: string, make: () => Promise<HoldStore>) {
   describe(`HoldStore contract: ${name}`, () => {
     it("one active hold per run; lifting records who and when; re-placing after lift works", async () => {
@@ -149,6 +211,43 @@ if (databaseUrl) {
   holdStoreContract("PostgresHoldStore", async () => {
     await pool.query("TRUNCATE legal_holds");
     return new PostgresHoldStore(pool);
+  });
+
+  describe("per-tenant retention isolation (ticket 044, CI-authoritative)", () => {
+    it("a retention pass over acme's schema never touches globex's runs or scores", async () => {
+      const KEY = "e".repeat(64);
+      const codec = makeEncryptedEventCodec(KEY);
+      const schemas = ["tenant_ret_acme", "tenant_ret_globex"] as const;
+      for (const schema of schemas) {
+        await migrate(pool, { schema });
+        await pool.query(`TRUNCATE ${schema}.run_events, ${schema}.run_scores, ${schema}.legal_holds`);
+      }
+      const acme = {
+        store: new PostgresEventStore(pool, codec, schemas[0]),
+        scores: new PostgresScoreStore(pool, schemas[0]),
+        holds: new PostgresHoldStore(pool, schemas[0]),
+      };
+      const globex = {
+        store: new PostgresEventStore(pool, codec, schemas[1]),
+        scores: new PostgresScoreStore(pool, schemas[1]),
+      };
+      // the SAME runId in both tenants — retention must not cross
+      await acme.store.append("run-shared", 0, run("run-shared", NOW - MAX_AGE - 5_000, "completed"));
+      await acme.scores.record(scoreFor("run-shared"));
+      await globex.store.append("run-shared", 0, run("run-shared", NOW - MAX_AGE - 5_000, "completed"));
+      await globex.scores.record(scoreFor("run-shared"));
+
+      const report = await applyRetention(acme.store, acme.holds, { maxAgeMs: MAX_AGE }, NOW, {
+        scores: acme.scores,
+      });
+      expect(report.deleted).toEqual(["run-shared"]);
+      expect(report.deletedScores).toEqual(["run-shared"]);
+      expect(await acme.store.load("run-shared")).toBeNull();
+      expect(await acme.scores.get("run-shared")).toBeUndefined();
+      // globex untouched, run AND score
+      expect(await globex.store.load("run-shared")).not.toBeNull();
+      expect(await globex.scores.get("run-shared")).toBeDefined();
+    });
   });
 } else {
   console.warn(

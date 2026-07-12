@@ -82,25 +82,35 @@ export async function openTenantStores(
 ): Promise<Map<string, TenantStores>> {
   const stores = new Map<string, TenantStores>();
   for (const spec of config.tenants) {
-    let codec;
-    if (spec.dataKeyEnv !== undefined) {
-      const key = env[spec.dataKeyEnv];
-      if (!key) {
-        throw new Error(
-          `tenant ${spec.id}: data key env ${spec.dataKeyEnv} is named but empty — refusing silent plaintext`,
-        );
-      }
-      codec = makeEncryptedEventCodec(key);
-    }
-    const schema = schemaFor(spec.id);
-    await migrate(pool, { schema });
-    stores.set(spec.id, {
-      spec,
-      schema,
-      store: new PostgresEventStore(pool, codec, schema),
-      scores: new PostgresScoreStore(pool, schema),
-      holds: new PostgresHoldStore(pool, schema),
-    });
+    stores.set(spec.id, await openTenantStore(pool, spec, env));
   }
   return stores;
+}
+
+/** One tenant's isolated stores — the ops CLIs (retention, rotation) target
+ * a single tenant without demanding every other tenant's key env. */
+export async function openTenantStore(
+  pool: pg.Pool,
+  spec: TenantSpec,
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): Promise<TenantStores> {
+  let codec;
+  if (spec.dataKeyEnv !== undefined) {
+    const key = env[spec.dataKeyEnv];
+    if (!key) {
+      throw new Error(
+        `tenant ${spec.id}: data key env ${spec.dataKeyEnv} is named but empty — refusing silent plaintext`,
+      );
+    }
+    codec = makeEncryptedEventCodec(key);
+  }
+  const schema = schemaFor(spec.id);
+  await migrate(pool, { schema });
+  return {
+    spec,
+    schema,
+    store: new PostgresEventStore(pool, codec, schema),
+    scores: new PostgresScoreStore(pool, schema),
+    holds: new PostgresHoldStore(pool, schema),
+  };
 }
