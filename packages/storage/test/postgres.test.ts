@@ -38,6 +38,14 @@ describe.skipIf(!databaseUrl)("PostgresEventStore (ticket 006)", () => {
     return handle.store;
   });
 
+  // ticket 036: the identical contract holds inside a non-public schema
+  describeEventStoreContract("PostgresEventStore (schema tenant_conformance)", async () => {
+    await migrate(handle.pool, { schema: "tenant_conformance" });
+    await handle.pool.query("TRUNCATE tenant_conformance.run_events");
+    const { PostgresEventStore } = await import("@platform/storage");
+    return new PostgresEventStore(handle.pool, undefined, "tenant_conformance");
+  });
+
   it("migrate is idempotent: second run applies nothing", async () => {
     const second = await migrate(handle.pool);
     expect(second.length).toBeGreaterThan(0);

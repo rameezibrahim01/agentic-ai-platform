@@ -15,15 +15,40 @@ export interface AppliedMigration {
   applied: boolean;
 }
 
+const SCHEMA_NAME = /^[a-z_][a-z0-9_]*$/;
+
+/** Validated, quoted schema qualifier — or empty for the default search path. */
+export function schemaQualifier(schema: string | undefined): string {
+  if (schema === undefined) return "";
+  if (!SCHEMA_NAME.test(schema)) {
+    throw new Error(`invalid schema name ${JSON.stringify(schema)} — [a-z_][a-z0-9_]* only`);
+  }
+  return `"${schema}".`;
+}
+
+export interface MigrateOptions {
+  /**
+   * Apply the same forward-only migrations inside this schema (ticket 036:
+   * schema-per-tenant). The schema is created if absent, and it tracks its
+   * own schema_migrations. Unset = today's default-search-path behavior.
+   */
+  schema?: string;
+}
+
 /**
  * Forward-only migrations (architecture §10: release artifacts ship
  * forward-only migrations; there are no down migrations). Numbered .sql files
  * apply in name order; each application is recorded in schema_migrations, so
  * running migrate twice is a no-op.
  */
-export async function migrate(pool: Pool): Promise<AppliedMigration[]> {
+export async function migrate(pool: Pool, options: MigrateOptions = {}): Promise<AppliedMigration[]> {
+  const qualifier = schemaQualifier(options.schema);
+  const lockKey = `schema_migrations:${options.schema ?? ""}`;
+  if (options.schema !== undefined) {
+    await pool.query(`CREATE SCHEMA IF NOT EXISTS "${options.schema}"`);
+  }
   await pool.query(`
-    CREATE TABLE IF NOT EXISTS schema_migrations (
+    CREATE TABLE IF NOT EXISTS ${qualifier}schema_migrations (
       name       text PRIMARY KEY,
       applied_at timestamptz NOT NULL DEFAULT now()
     )
@@ -35,9 +60,16 @@ export async function migrate(pool: Pool): Promise<AppliedMigration[]> {
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
-      // serialize concurrent migrators
-      await client.query("SELECT pg_advisory_xact_lock(hashtextextended('schema_migrations', 42))");
-      const { rows } = await client.query("SELECT 1 FROM schema_migrations WHERE name = $1", [name]);
+      // serialize concurrent migrators (per schema — tenants migrate in parallel)
+      await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 42))", [lockKey]);
+      if (options.schema !== undefined) {
+        // migration files use unqualified names; the search path scopes them
+        await client.query(`SET LOCAL search_path TO "${options.schema}"`);
+      }
+      const { rows } = await client.query(
+        `SELECT 1 FROM ${qualifier}schema_migrations WHERE name = $1`,
+        [name],
+      );
       if (rows.length > 0) {
         await client.query("COMMIT");
         results.push({ name, applied: false });
@@ -45,7 +77,7 @@ export async function migrate(pool: Pool): Promise<AppliedMigration[]> {
       }
       const sql = await readFile(`${dir}/${name}`, "utf8");
       await client.query(sql);
-      await client.query("INSERT INTO schema_migrations (name) VALUES ($1)", [name]);
+      await client.query(`INSERT INTO ${qualifier}schema_migrations (name) VALUES ($1)`, [name]);
       await client.query("COMMIT");
       results.push({ name, applied: true });
     } catch (error) {

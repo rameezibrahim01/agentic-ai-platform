@@ -1,5 +1,6 @@
 import type pg from "pg";
 import { z } from "zod";
+import { schemaQualifier } from "./migrate.js";
 
 // Score store (ticket 029): observations about runs, deliberately OUTSIDE
 // the run event log — judging a run must leave its audit trail
@@ -78,7 +79,14 @@ const fromRow = (row: ScoreRow): RunScore => ({
 
 /** Same contract on Postgres; the primary key is the one-score-per-run law. */
 export class PostgresScoreStore implements ScoreStore {
-  constructor(private readonly pool: pg.Pool) {}
+  private readonly table: string;
+
+  constructor(
+    private readonly pool: pg.Pool,
+    schema?: string,
+  ) {
+    this.table = `${schemaQualifier(schema)}run_scores`;
+  }
 
   async record(score: RunScore): Promise<RecordScoreResult> {
     const parsed = runScoreSchema.safeParse(score);
@@ -90,7 +98,7 @@ export class PostgresScoreStore implements ScoreStore {
     }
     const s = parsed.data;
     const result = await this.pool.query(
-      `INSERT INTO run_scores (run_id, agent, rubric_id, judge_model, scores, weighted_score, scored_at)
+      `INSERT INTO ${this.table} (run_id, agent, rubric_id, judge_model, scores, weighted_score, scored_at)
        VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7)
        ON CONFLICT (run_id) DO NOTHING`,
       [s.runId, s.agent, s.rubricId, s.judgeModel, JSON.stringify(s.scores), s.weightedScore, s.scoredAt],
@@ -100,7 +108,7 @@ export class PostgresScoreStore implements ScoreStore {
 
   async get(runId: string): Promise<RunScore | undefined> {
     const result = await this.pool.query<ScoreRow>(
-      "SELECT * FROM run_scores WHERE run_id = $1",
+      `SELECT * FROM ${this.table} WHERE run_id = $1`,
       [runId],
     );
     const row = result.rows[0];
@@ -108,7 +116,7 @@ export class PostgresScoreStore implements ScoreStore {
   }
 
   async list(): Promise<RunScore[]> {
-    const result = await this.pool.query<ScoreRow>("SELECT * FROM run_scores ORDER BY run_id");
+    const result = await this.pool.query<ScoreRow>(`SELECT * FROM ${this.table} ORDER BY run_id`);
     return result.rows.map(fromRow);
   }
 }
