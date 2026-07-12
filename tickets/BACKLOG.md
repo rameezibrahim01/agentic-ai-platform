@@ -38,17 +38,17 @@ The domino batch, landed: schema-per-tenant storage (036), tenant-scoped engine 
 (039, `drill-p4-3-onboarding.sh` — the SSO/SCIM + real-customer half stays human-owned
 in docs/drills/phase-4.md).
 
-## Remaining seeds (tenancy landed — these are the next expansion candidates)
-- **SCIM provisioning** (accounts/tenants from the IdP; completes the onboarding
-  drill's automated half) and **per-tenant model/tool configs** (today model + tool
-  gateways are shared platform capability; per-tenant TOOLS_CONFIG/MODELS_CONFIG is
-  the natural next isolation cut).
-- **Tenant admin/operator views** — cross-tenant platform-operator console (038's
-  out-of-scope note: a real need, per-tenant views must never be the workaround).
-- **Helm/air-gap packaging** of the artifact (needs a k8s story); **key
-  rotation/re-encryption tooling** (follow-up to 035, now per-tenant); **run_scores
-  retention** (follow-up to 032); web-click kill-switch flipping (write-path auth
-  design, 033 note); approval escalation/delegation-to-a-person (025 note).
+## Batch 040–044 (enterprise ops) — EXPANDED into ticket files (see tickets/040…044) ✔
+SCIM provisioning floor (040), per-tenant model/tool configs (041), platform-operator
+view (042), key rotation/re-encryption (043), run_scores retention parity (044).
+Deferred within the batch: per-tenant provider API keys (needs a secrets-mount design),
+SCIM Groups, operator write actions.
+
+## Remaining seeds (expand when 040–044 are done)
+- **Helm/air-gap packaging** of the artifact (needs a k8s story); web-click
+  kill-switch flipping (write-path auth design, 033 note); approval
+  escalation/delegation-to-a-person (025 note); per-tenant provider API keys
+  (041 note — secrets-mount design first).
 - **Phase 3 drills still OPEN in docs/drills/phase-3.md:** model-swap (needs a successor
   model + real key), economics test (human-read from /costs).
 - **Connector SDK docs** + scoped read-only SQL tool (architecture §6's remaining
