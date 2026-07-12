@@ -42,8 +42,17 @@ everything reads again. The key never appears in logs/events/traces — the
 022 secrets scan runs its entire pass over an encrypted store with a seeded
 key in the scan list.
 
-Per-tenant keys and KMS sourcing arrive with tenancy; the key's SOURCE is
-deliberately the client's problem (env/mounted secret is the interface).
+Per-tenant keys landed with tenancy (036); the key's SOURCE is deliberately
+the client's problem (env/mounted secret is the interface).
+
+**Rotation (ticket 043):** revoke, rotate, and restore are all operator
+moves now. `OLD_DATA_KEY=<hex> NEW_DATA_KEY=<hex> tsx src/rotate-key-cli.ts
+[--tenant <id>] [--dry-run]` re-encrypts a store's history under the new
+key — per-run atomic under the same lock as append, decoded streams
+verified byte-identical before commit, resumable if interrupted, typed
+failure (nothing written) on a wrong old key. An unset `OLD_DATA_KEY`
+adopts encryption over a plaintext store; an unset `NEW_DATA_KEY` decrypts
+back out. Restart workers/console onto the new key before rotating.
 
 ## Drill 4 — onboarding, reference form (ticket 039)
 
