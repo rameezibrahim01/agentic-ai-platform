@@ -8,9 +8,11 @@ import {
   mapOidcTenant,
   oidcPrincipal,
   oidcRoleMappingSchema,
+  validateStoredRoles,
   verifyIdToken,
 } from "@platform/auth";
 import type { Jwks, OidcTenantMapping, Role } from "@platform/auth";
+import type { AccountRecord } from "@platform/storage";
 
 // OIDC federation (ticket 034): any spec-compliant, self-hostable issuer.
 // Config is mounted (roles come from the map, never from the IdP alone);
@@ -151,6 +153,12 @@ export interface CallbackDeps {
   /** Tenanted deployment (038): a login MUST resolve a tenant or be refused. */
   tenanted: boolean;
   tenantMapping?: OidcTenantMapping;
+  /**
+   * SCIM account store (040): when configured, the RECORD is authoritative —
+   * missing or deactivated = refused login even with a valid id token, and
+   * roles/tenant come from the record instead of the claim maps.
+   */
+  accountLookup?: (externalId: string) => Promise<AccountRecord | undefined>;
   sessionSecret: string;
   sessionTtlMs: number;
   fetchFn: typeof fetch;
@@ -212,26 +220,44 @@ export async function handleOidcCallback(
     return { ok: false, status: 401, error: `id token rejected: ${verified.reason}` };
   }
 
-  const roles = mapOidcRoles(verified.claims, deps.mapping);
   const principal = oidcPrincipal(verified.claims);
 
-  // Tenant binding (038): the tenant comes from the config map alone, and a
-  // tenanted deployment NEVER guesses — unmapped (or unconfigured) is a
-  // refused login, not a default workspace.
+  let roles: Role[];
   let tenant: string | undefined;
-  if (deps.tenantMapping !== undefined) {
-    const mapped = mapOidcTenant(verified.claims, deps.tenantMapping);
-    if (mapped.ok) {
-      tenant = mapped.tenant;
-    } else if (deps.tenanted) {
-      return { ok: false, status: 401, error: `tenant mapping refused: ${mapped.reason}` };
+  if (deps.accountLookup !== undefined) {
+    // Provisioned truth (040): the IdP that deactivates a user has revoked
+    // their access, valid id token or not. Roles/tenant come from the record.
+    const record = await deps.accountLookup(verified.claims.sub);
+    if (record === undefined || !record.active) {
+      return { ok: false, status: 401, error: "no active provisioned account for this identity" };
     }
-  } else if (deps.tenanted) {
-    return {
-      ok: false,
-      status: 401,
-      error: "tenanted deployment with no OIDC tenant mapping — refusing login",
-    };
+    const validated = validateStoredRoles(record.roles);
+    if (!validated.ok) return { ok: false, status: 401, error: validated.error };
+    roles = validated.roles;
+    tenant = record.tenant;
+    if (deps.tenanted && tenant === undefined) {
+      return { ok: false, status: 401, error: "provisioned account carries no tenant — refusing login" };
+    }
+  } else {
+    roles = mapOidcRoles(verified.claims, deps.mapping);
+
+    // Tenant binding (038): the tenant comes from the config map alone, and a
+    // tenanted deployment NEVER guesses — unmapped (or unconfigured) is a
+    // refused login, not a default workspace.
+    if (deps.tenantMapping !== undefined) {
+      const mapped = mapOidcTenant(verified.claims, deps.tenantMapping);
+      if (mapped.ok) {
+        tenant = mapped.tenant;
+      } else if (deps.tenanted) {
+        return { ok: false, status: 401, error: `tenant mapping refused: ${mapped.reason}` };
+      }
+    } else if (deps.tenanted) {
+      return {
+        ok: false,
+        status: 401,
+        error: "tenanted deployment with no OIDC tenant mapping — refusing login",
+      };
+    }
   }
 
   const sessionToken = issueSessionFor(
