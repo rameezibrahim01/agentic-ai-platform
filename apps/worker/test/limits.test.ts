@@ -12,6 +12,7 @@ import {
   countRecentStarts,
   limitsConfigSchema,
   makeLimitsLoader,
+  makeTenantLimitsLoader,
   NO_LIMITS,
 } from "../src/limits.js";
 import { makeWorld, TEST_AGENT } from "./helpers.js";
@@ -91,6 +92,34 @@ describe("operator limits (ticket 033)", () => {
       await new Promise((resolve) => setTimeout(resolve, 10));
       await writeFile(path, JSON.stringify({ nonsense: 1 }));
       await expect(load()).rejects.toThrow(/LIMITS_CONFIG rejected/);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("tenant loader (ticket 037): tenant file wins when present, missing falls back, invalid stays loud", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "limits-tenant-"));
+    try {
+      const sharedPath = join(dir, "limits.config.json");
+      await writeFile(sharedPath, JSON.stringify({ killSwitches: { global: false, agents: {} } }));
+      const tenantPath = join(dir, "limits.acme.config.json");
+
+      const load = makeTenantLimitsLoader(tenantPath, sharedPath);
+      expect((await load()).killSwitches.global).toBe(false); // no tenant file → shared
+
+      await writeFile(tenantPath, JSON.stringify({ killSwitches: { global: true, agents: {} } }));
+      expect((await load()).killSwitches.global).toBe(true); // tenant override, no restart
+
+      await rm(tenantPath);
+      expect((await load()).killSwitches.global).toBe(false); // removal falls back again
+
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      await writeFile(tenantPath, JSON.stringify({ nonsense: 1 }));
+      await expect(load()).rejects.toThrow(/LIMITS_CONFIG rejected/); // never a silent fallback
+
+      // no shared file either: missing tenant file → NO_LIMITS, same as untenanted
+      const orphan = makeTenantLimitsLoader(join(dir, "limits.ghost.config.json"), undefined);
+      expect(await orphan()).toEqual(NO_LIMITS);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
