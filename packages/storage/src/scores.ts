@@ -30,6 +30,9 @@ export interface ScoreStore {
   record(score: RunScore): Promise<RecordScoreResult>;
   get(runId: string): Promise<RunScore | undefined>;
   list(): Promise<RunScore[]>;
+  /** The ONLY score-deletion path (ticket 044): scores die with their run.
+   * Idempotent — a second delete is a typed miss, never an error. */
+  delete(runId: string): Promise<{ ok: true } | { ok: false; error: "not_found" }>;
 }
 
 export class InMemoryScoreStore implements ScoreStore {
@@ -54,6 +57,10 @@ export class InMemoryScoreStore implements ScoreStore {
 
   async list(): Promise<RunScore[]> {
     return [...this.scores.values()];
+  }
+
+  async delete(runId: string): Promise<{ ok: true } | { ok: false; error: "not_found" }> {
+    return this.scores.delete(runId) ? { ok: true } : { ok: false, error: "not_found" };
   }
 }
 
@@ -118,5 +125,10 @@ export class PostgresScoreStore implements ScoreStore {
   async list(): Promise<RunScore[]> {
     const result = await this.pool.query<ScoreRow>(`SELECT * FROM ${this.table} ORDER BY run_id`);
     return result.rows.map(fromRow);
+  }
+
+  async delete(runId: string): Promise<{ ok: true } | { ok: false; error: "not_found" }> {
+    const result = await this.pool.query(`DELETE FROM ${this.table} WHERE run_id = $1`, [runId]);
+    return (result.rowCount ?? 0) > 0 ? { ok: true } : { ok: false, error: "not_found" };
   }
 }
