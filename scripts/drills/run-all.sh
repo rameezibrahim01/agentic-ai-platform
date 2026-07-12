@@ -21,6 +21,7 @@ declare -a NAMES=(
   "phase 2 / drill 6 — auditor's question"
   "phase 4 / drill 1 — audit export (tamper evidence)"
   "phase 4 / drill 2 — key revocation (artifact)"
+  "phase 4 / drill 4 — onboarding (reference form; script drill-p4-3)"
 )
 declare -a SCRIPTS=(
   "drill-1-kill.sh"
@@ -37,6 +38,7 @@ declare -a SCRIPTS=(
   "drill-p2-6-auditor.sh"
   "drill-p4-1-audit-export.sh"
   "drill-p4-2-key-revocation.sh"
+  "drill-p4-3-onboarding.sh"
 )
 
 declare -a RESULTS=()
@@ -61,6 +63,8 @@ echo "HUMAN  phase 1 / drill 5 — usefulness test (design partner, weekly)"
 echo "HUMAN  phase 1 / drill 4 — invoice reconciliation (totals within 2%)"
 echo "HUMAN  phase 2 / drill 1 — the partner's REAL write (reference form runs above)"
 echo "HUMAN  phase 2 / drill 3 — external red-team review (a person, not a script)"
+echo "HUMAN  phase 4 / drill 3 — SIEM ingestion by the customer's security team"
+echo "HUMAN  phase 4 / drill 4 — real onboarding (SSO/SCIM half; reference form runs above)"
 echo "============================================================"
 
 if [ "$failures" -gt 0 ]; then
