@@ -59,6 +59,29 @@ export function makeLimitsLoader(configPath: string | undefined) {
   };
 }
 
+/**
+ * Tenant lane loader (ticket 037): `limits.<tenantId>.config.json` beside the
+ * shared file wins WHEN PRESENT; a missing tenant file falls back to the
+ * shared config on every check, so dropping the file in (or removing it)
+ * takes effect without a restart. An INVALID tenant file still throws — a
+ * malformed override never silently falls back to looser shared limits.
+ */
+export function makeTenantLimitsLoader(
+  tenantPath: string,
+  sharedPath: string | undefined,
+): () => Promise<LimitsConfig> {
+  const tenant = makeLimitsLoader(tenantPath);
+  const shared = makeLimitsLoader(sharedPath);
+  return async function loadLimits(): Promise<LimitsConfig> {
+    try {
+      return await tenant();
+    } catch (error) {
+      if ((error as { code?: string }).code === "ENOENT") return shared();
+      throw error;
+    }
+  };
+}
+
 /** Field-wise min: a run requesting more than the cap silently gets the cap. */
 export function capBudget(runBudget: BudgetPolicy, cap: BudgetPolicy | undefined): BudgetPolicy {
   if (cap === undefined) return runBudget;

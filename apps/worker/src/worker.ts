@@ -1,5 +1,7 @@
 import { readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import pg from "pg";
 import { NativeConnection, Worker } from "@temporalio/worker";
 import {
   createPostgresEventStore,
@@ -10,14 +12,17 @@ import type { EventStore } from "@platform/storage";
 import { fakeIntent, fakeMessage } from "@platform/model-gateway";
 import type { FakeBehavior } from "@platform/model-gateway";
 import { buildModelGateway } from "./model-config.js";
-import { makeLimitsLoader } from "./limits.js";
+import { makeLimitsLoader, makeTenantLimitsLoader } from "./limits.js";
 import { DEFAULT_RULES } from "@platform/policy";
 import { ToolRegistry } from "@platform/tool-registry";
 import { createToolGateway } from "@platform/tool-gateway";
 import { createActivities } from "./activities.js";
-import { TASK_QUEUE } from "./client.js";
+import { TASK_QUEUE, taskQueueFor } from "./client.js";
+import { openTenantStores, parseTenantsConfig } from "./tenants.js";
 import { buildTools } from "./tools-config.js";
 import type { BuiltTools } from "./tools-config.js";
+import type { ToolGateway } from "@platform/tool-gateway";
+import type { ModelGateway } from "@platform/model-gateway";
 
 export const workflowsPath = fileURLToPath(new URL("./workflows.ts", import.meta.url));
 
@@ -35,25 +40,6 @@ export async function runWorker(): Promise<void> {
   const namespace = process.env["TEMPORAL_NAMESPACE"] ?? "default";
   const databaseUrl = process.env["DATABASE_URL"];
   const platformEnv = process.env["PLATFORM_ENV"] ?? "dev";
-
-  // BYOK-style payload encryption (ticket 035): the client's key makes the
-  // logs readable; without it stored rows stay dark. Key from env only.
-  const dataKey = process.env["PLATFORM_DATA_KEY"];
-  const codec = dataKey ? makeEncryptedEventCodec(dataKey) : undefined;
-
-  let store: EventStore;
-  let closeStore: () => Promise<void> = async () => {};
-  if (databaseUrl) {
-    const handle = await createPostgresEventStore(databaseUrl, codec); // runs migrations
-    store = handle.store;
-    closeStore = handle.close;
-    console.log(
-      `worker: using Postgres event store (migrations applied)${codec ? "; payload encryption ON" : ""}`,
-    );
-  } else {
-    store = new InMemoryEventStore();
-    console.log("worker: using in-memory event store (set DATABASE_URL for durability)");
-  }
 
   // Real provider when a key is configured (ticket 026): key from env only,
   // models from MODELS_CONFIG only, stub always present as the failover.
@@ -77,6 +63,39 @@ export async function runWorker(): Promise<void> {
     env: platformEnv,
   });
 
+  // Tenanted deployment (ticket 037): TENANTS_CONFIG turns the process into
+  // one lane per tenant — own queue, own store, own key, own limits. There is
+  // no untenanted lane in tenanted mode: every run belongs to a tenant.
+  const tenantsConfigPath = process.env["TENANTS_CONFIG"];
+  if (tenantsConfigPath) {
+    if (!databaseUrl) {
+      throw new Error(
+        "worker: TENANTS_CONFIG requires DATABASE_URL — tenant isolation is schema-per-tenant Postgres",
+      );
+    }
+    await runTenantWorkers({ address, namespace, databaseUrl, tenantsConfigPath, gateway, tools });
+    return;
+  }
+
+  // BYOK-style payload encryption (ticket 035): the client's key makes the
+  // logs readable; without it stored rows stay dark. Key from env only.
+  const dataKey = process.env["PLATFORM_DATA_KEY"];
+  const codec = dataKey ? makeEncryptedEventCodec(dataKey) : undefined;
+
+  let store: EventStore;
+  let closeStore: () => Promise<void> = async () => {};
+  if (databaseUrl) {
+    const handle = await createPostgresEventStore(databaseUrl, codec); // runs migrations
+    store = handle.store;
+    closeStore = handle.close;
+    console.log(
+      `worker: using Postgres event store (migrations applied)${codec ? "; payload encryption ON" : ""}`,
+    );
+  } else {
+    store = new InMemoryEventStore();
+    console.log("worker: using in-memory event store (set DATABASE_URL for durability)");
+  }
+
   // operator limits (ticket 033): validate at boot (fail fast on a bad file),
   // then re-read per check so switch flips take effect without a restart
   const limitsPath = process.env["LIMITS_CONFIG"];
@@ -99,6 +118,85 @@ export async function runWorker(): Promise<void> {
   } finally {
     await connection.close();
     await closeStore();
+  }
+}
+
+/**
+ * One worker process, one isolated lane per tenant (ticket 037): each lane's
+ * activities are constructed with exactly one tenant's store, codec, and
+ * limits in hand — a run on tenant A's queue physically cannot write tenant
+ * B's schema. Model/tool gateways are shared platform capability in this
+ * slice. Limits: `limits.<tenantId>.config.json` beside the shared
+ * LIMITS_CONFIG wins when present, else the shared file governs the lane.
+ */
+async function runTenantWorkers(options: {
+  address: string;
+  namespace: string;
+  databaseUrl: string;
+  tenantsConfigPath: string;
+  gateway: ModelGateway;
+  tools: ToolGateway;
+}): Promise<void> {
+  const parsed = parseTenantsConfig(
+    JSON.parse(await readFile(options.tenantsConfigPath, "utf8")) as unknown,
+  );
+  if (!parsed.ok) throw new Error(`worker: TENANTS_CONFIG rejected — ${parsed.error}`);
+
+  const sharedLimitsPath = process.env["LIMITS_CONFIG"];
+  const pool = new pg.Pool({ connectionString: options.databaseUrl });
+  try {
+    const tenants = await openTenantStores(pool, parsed.config); // migrates every schema
+    const connection = await NativeConnection.connect({ address: options.address });
+    try {
+      const workers: Worker[] = [];
+      for (const [tenantId, tenant] of tenants) {
+        const tenantLimitsPath = sharedLimitsPath
+          ? join(dirname(sharedLimitsPath), `limits.${tenantId}.config.json`)
+          : undefined;
+        const load = tenantLimitsPath
+          ? makeTenantLimitsLoader(tenantLimitsPath, sharedLimitsPath)
+          : makeLimitsLoader(undefined);
+        const boot = await load(); // fail fast on a bad limits file
+        console.log(
+          `worker: tenant ${tenantId} → queue ${taskQueueFor(tenantId)}, schema ${tenant.schema}, ` +
+            `encryption ${tenant.spec.dataKeyEnv ? "ON" : "off"}, global kill switch: ${boot.killSwitches.global}`,
+        );
+        workers.push(
+          await Worker.create({
+            connection,
+            namespace: options.namespace,
+            taskQueue: taskQueueFor(tenantId),
+            workflowsPath,
+            activities: createActivities({
+              store: tenant.store,
+              gateway: options.gateway,
+              tools: options.tools,
+              limits: { load },
+            }),
+          }),
+        );
+      }
+      // joint lifecycle: one lane failing takes the whole process down
+      // cleanly instead of leaving it half-alive
+      await Promise.all(
+        workers.map((worker) =>
+          worker.run().catch((error: unknown) => {
+            for (const other of workers) {
+              try {
+                other.shutdown();
+              } catch {
+                // already stopping
+              }
+            }
+            throw error;
+          }),
+        ),
+      );
+    } finally {
+      await connection.close();
+    }
+  } finally {
+    await pool.end();
   }
 }
 

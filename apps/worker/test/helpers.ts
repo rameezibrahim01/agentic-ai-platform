@@ -29,6 +29,8 @@ export function makeWorld(
     delegation?: { secret: string };
     /** Ticket 033: mounts an operator limits file into the activities. */
     limitsPath?: string;
+    /** Ticket 037: inject a limits loader directly (tenant fallback chains). */
+    limitsLoader?: () => Promise<import("../src/limits.js").LimitsConfig>;
   } = {},
 ) {
   const store = new InMemoryEventStore();
@@ -105,7 +107,11 @@ export function makeWorld(
     gateway,
     tools,
     ...(opts.tracer ? { tracer: opts.tracer } : {}),
-    ...(opts.limitsPath ? { limits: { load: makeLimitsLoader(opts.limitsPath) } } : {}),
+    ...(opts.limitsLoader
+      ? { limits: { load: opts.limitsLoader } }
+      : opts.limitsPath
+        ? { limits: { load: makeLimitsLoader(opts.limitsPath) } }
+        : {}),
     ...(opts.delegation
       ? {
           grants: {

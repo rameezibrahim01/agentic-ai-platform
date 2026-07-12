@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { Client, Connection } from "@temporalio/client";
 import { loadAgentsConfig, resolveAgentAlias } from "./agents/registry.js";
-import { startAgentRun } from "./client.js";
+import { startAgentRun, taskQueueFor } from "./client.js";
 
 // Trigger the demo write run inside the artifact (ticket 021) — the smallest
 // honest mechanism to exercise the governed write path: a CLI hook run via
@@ -11,10 +11,22 @@ import { startAgentRun } from "./client.js";
 // mounted it resolves through the environment pointer, so promotions and
 // rollbacks change what the demo runs without touching this script.
 async function main(): Promise<void> {
-  const runId = process.argv[2];
-  const agentArg = process.argv[3] ?? "demo-agent@v1";
+  // --tenant <id> (ticket 037) targets that tenant's task queue lane
+  const argv = process.argv.slice(2);
+  let tenant: string | undefined;
+  const tenantFlag = argv.indexOf("--tenant");
+  if (tenantFlag !== -1) {
+    tenant = argv[tenantFlag + 1];
+    if (!tenant) {
+      console.error("--tenant requires a tenant id");
+      process.exit(2);
+    }
+    argv.splice(tenantFlag, 2);
+  }
+  const runId = argv[0];
+  const agentArg = argv[1] ?? "demo-agent@v1";
   if (!runId) {
-    console.error("usage: tsx src/demo-run.ts <runId> [agent-alias-or-version]");
+    console.error("usage: tsx src/demo-run.ts <runId> [agent-alias-or-version] [--tenant <id>]");
     process.exit(2);
   }
 
@@ -44,16 +56,23 @@ async function main(): Promise<void> {
       connection,
       namespace: process.env["TEMPORAL_NAMESPACE"] ?? "default",
     });
-    const handle = await startAgentRun(client, {
-      runId,
-      agent,
-      principal: "user:demo",
-      input: { source: "write-drill" },
-      model,
-      prompt,
-      approvalTtlMs: 10 * 60 * 1000,
-    });
-    console.log(`started run ${handle.workflowId} as ${agent}`);
+    const handle = await startAgentRun(
+      client,
+      {
+        runId,
+        agent,
+        principal: "user:demo",
+        input: { source: "write-drill" },
+        model,
+        prompt,
+        approvalTtlMs: 10 * 60 * 1000,
+      },
+      tenant !== undefined ? { tenant } : undefined,
+    );
+    console.log(
+      `started run ${handle.workflowId} as ${agent}` +
+        (tenant !== undefined ? ` (tenant ${tenant}, queue ${taskQueueFor(tenant)})` : ""),
+    );
   } finally {
     await connection.close();
   }
