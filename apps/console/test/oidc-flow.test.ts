@@ -188,3 +188,67 @@ describe("tenant binding at the OIDC front door (ticket 038)", () => {
     if (unmapped.ok) expect(unmapped.tenant).toBeUndefined();
   });
 });
+
+describe("provisioned-account logins (ticket 040)", () => {
+  const record = (overrides: Record<string, unknown> = {}) => ({
+    username: "alice",
+    externalId: "u-42", // the id token's sub
+    roles: ["approver"],
+    tenant: "acme",
+    active: true,
+    updatedAt: NOW,
+    ...overrides,
+  });
+
+  const withLookup = (
+    rec: ReturnType<typeof record> | undefined,
+    tenanted = true,
+  ) =>
+    deps(idToken(), 200, {
+      tenanted,
+      accountLookup: async (externalId: string) =>
+        rec !== undefined && externalId === rec.externalId ? (rec as never) : undefined,
+    } as never);
+
+  it("an active record supplies roles and tenant — claim maps are bypassed", async () => {
+    const result = await handleOidcCallback(withLookup(record()), PARAMS);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.roles).toEqual(["approver"]);
+    expect(result.tenant).toBe("acme");
+    const session = verifySession(result.sessionToken, SESSION_SECRET, NOW + 1);
+    expect(session.ok && session.claims.tenant).toBe("acme");
+  });
+
+  it("deactivated or missing records refuse the login even with a VALID id token", async () => {
+    expect(await handleOidcCallback(withLookup(record({ active: false })), PARAMS)).toEqual({
+      ok: false,
+      status: 401,
+      error: "no active provisioned account for this identity",
+    });
+    expect(await handleOidcCallback(withLookup(undefined), PARAMS)).toMatchObject({
+      ok: false,
+      status: 401,
+    });
+  });
+
+  it("records with invalid roles or (tenanted) no tenant are typed refusals", async () => {
+    expect(
+      await handleOidcCallback(withLookup(record({ roles: ["superuser"] })), PARAMS),
+    ).toMatchObject({ ok: false, status: 401 });
+    expect(
+      await handleOidcCallback(withLookup(record({ tenant: undefined })), PARAMS),
+    ).toEqual({
+      ok: false,
+      status: 401,
+      error: "provisioned account carries no tenant — refusing login",
+    });
+    // untenanted deployment: a tenantless record is fine
+    const untenanted = await handleOidcCallback(
+      withLookup(record({ tenant: undefined }), false),
+      PARAMS,
+    );
+    expect(untenanted.ok).toBe(true);
+    if (untenanted.ok) expect(untenanted.tenant).toBeUndefined();
+  });
+});

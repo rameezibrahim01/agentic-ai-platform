@@ -10,6 +10,25 @@ export { issueSession, issueSessionFor, verifySession } from "./session.js";
 export type { SessionClaims, SessionVerification } from "./session.js";
 
 export {
+  SCIM_ERROR_SCHEMA_URN,
+  SCIM_LIST_SCHEMA_URN,
+  SCIM_PATCH_SCHEMA_URN,
+  SCIM_USER_SCHEMA_URN,
+  scimPatchActive,
+  scimPatchSchema,
+  scimToAccount,
+  scimUserSchema,
+  validateStoredRoles,
+} from "./scim.js";
+export type {
+  ProvisionedAccount,
+  ScimMappingContext,
+  ScimPatch,
+  ScimToAccountResult,
+  ScimUser,
+} from "./scim.js";
+
+export {
   jwksSchema,
   mapOidcRoles,
   mapOidcTenant,

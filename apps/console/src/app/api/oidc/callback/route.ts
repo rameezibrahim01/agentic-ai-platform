@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getSessionSecret, SESSION_COOKIE, SESSION_TTL_MS } from "../../../../lib/auth";
 import { getOidcRuntime, handleOidcCallback, TRANSIENT_COOKIE } from "../../../../lib/oidc";
+import { getAccountLookup } from "../../../../lib/scim";
 import { isTenanted } from "../../../../lib/store";
 
 // Finish the code flow (ticket 034). All decisions live in
@@ -27,6 +28,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         defaultRoles: runtime.config.defaultRoles,
       },
       tenanted: isTenanted(),
+      ...(await (async () => {
+        const lookup = await getAccountLookup();
+        return lookup !== null ? { accountLookup: lookup } : {};
+      })()),
       ...(runtime.config.tenantClaim !== undefined && runtime.config.tenantMap !== undefined
         ? {
             tenantMapping: {

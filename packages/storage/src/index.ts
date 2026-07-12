@@ -13,6 +13,8 @@ export { migrate } from "./migrate.js";
 export type { AppliedMigration } from "./migrate.js";
 export { InMemoryScoreStore, PostgresScoreStore, runScoreSchema } from "./scores.js";
 export type { RecordScoreResult, RunScore, ScoreStore } from "./scores.js";
+export { InMemoryAccountStore, PostgresAccountStore } from "./accounts.js";
+export type { AccountRecord, AccountStore, UpsertAccountResult } from "./accounts.js";
 export { applyRetention, InMemoryHoldStore, PostgresHoldStore } from "./retention.js";
 export type {
   HoldResult,
