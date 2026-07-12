@@ -2,8 +2,10 @@
 
 Phase 4 (build-plan): the enterprise wrap. Same discipline as phases 1–3:
 drills are runs, not assertions; human-owned rows stay OPEN until signed.
-This batch (031–035) covers the single-tenant-honest slice — the drills
-that need a second tenant or a customer's SIEM stay human-owned below.
+Batch 031–035 covered the single-tenant-honest slice; batch 036–039 added
+tenancy, so the onboarding drill now runs in REFERENCE FORM in CI — the
+halves that need a real IdP, SCIM, or a real second customer stay
+human-owned below.
 
 ## The drill map
 
@@ -12,7 +14,7 @@ that need a second tenant or a customer's SIEM stay human-owned below.
 | 1 | Audit export (tamper evidence) | `drill-p4-1-audit-export.sh` | CI ✅ |
 | 2 | Key revocation | `drill-p4-2-key-revocation.sh` | CI ✅ |
 | 3 | SIEM test | customer's security team ingests + answers the auditor's question from THEIR tooling | **OPEN** (human) |
-| 4 | Onboarding test | second tenant, SSO/SCIM, zero vendor-side steps | **OPEN** (needs tenancy) |
+| 4 | Onboarding test | reference form: `drill-p4-3-onboarding.sh`; SSO/SCIM + real customer half | CI ✅ / **OPEN** (human) |
 
 ## Drill 1 — the audit export
 
@@ -43,9 +45,35 @@ key in the scan list.
 Per-tenant keys and KMS sourcing arrive with tenancy; the key's SOURCE is
 deliberately the client's problem (env/mounted secret is the interface).
 
+## Drill 4 — onboarding, reference form (ticket 039)
+
+**What runs (CI, against the real compose artifact):** the platform boots
+tenanted with `acme` only (own schema `tenant_acme`, own task queue
+`agent-runs--acme`, own data key `ACME_DATA_KEY`) and acme's first governed
+write completes, encrypted, in its own schema. Then `globex` is onboarded
+**by editing `deploy/tenants.config.json` and restarting worker+console —
+the only vendor-side step is configuration**, which is the claim under
+test. globex's first governed run completes on its own queue into its own
+schema under its own key, and isolation is asserted four ways:
+
+1. **storage** — each `tenant_*` schema holds only its own runs (psql);
+2. **engine** — each demo run demonstrably rode its own task-queue lane;
+3. **console** — a session bound to acme lists no globex runs and gets
+   "run not found" on globex's runId (session scoping, ticket 038);
+4. **key** — globex's raw rows are AES-256-GCM envelopes with no plaintext
+   markers, encrypted under globex's own key, unreadable to any other.
+
+Every pre-existing drill still boots single-tenant (the compose default is
+untenanted; the drill opts in with `TENANTS_CONFIG`), so nothing regressed.
+
+**What stays human (the drill's other half):** SSO/SCIM against the
+customer's real IdP, and a REAL second customer going contract → first
+governed run with zero vendor-side manual steps beyond config. Recorded
+OPEN below until it happens.
+
 ## Human-owned rows
 
 | Drill | Owner | Status |
 |-------|-------|--------|
 | 3 — SIEM ingestion confirmed by the customer's security team | customer | **OPEN** |
-| 4 — onboarding test (second tenant via SSO/SCIM) | owner + tenancy work | **OPEN** |
+| 4 — onboarding test, real form (SSO/SCIM, a real second customer) | owner + customer | **OPEN** (reference form CI ✅) |

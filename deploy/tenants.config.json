@@ -1,0 +1,5 @@
+{
+  "tenants": [
+    { "id": "acme", "displayName": "Acme Corp", "dataKeyEnv": "ACME_DATA_KEY" }
+  ]
+}

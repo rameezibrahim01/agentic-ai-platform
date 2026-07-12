@@ -34,8 +34,17 @@ async function loadAccounts(): Promise<Account[]> {
     "auth: no AUTH_ACCOUNTS_FILE configured — using the DEV fallback account " +
       `("dev-admin"). Do not run a real deployment like this.`,
   );
+  // AUTH_DEV_TENANT (ticket 039): tenant-bind the dev fallback so the
+  // onboarding drill can exercise session scoping; real deployments bind
+  // tenants via the accounts file or the OIDC tenant map (ticket 038).
+  const devTenant = process.env["AUTH_DEV_TENANT"];
   return [
-    { username: "dev-admin", passwordHash: hashPassword(devPassword), roles: ["platform_admin"] },
+    {
+      username: "dev-admin",
+      passwordHash: hashPassword(devPassword),
+      roles: ["platform_admin"],
+      ...(devTenant ? { tenant: devTenant } : {}),
+    },
   ];
 }
 

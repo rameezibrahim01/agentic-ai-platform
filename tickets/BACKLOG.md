@@ -32,17 +32,23 @@ client-key payload encryption + revocation drill (035). Tenancy hardening, SCIM,
 air-gap packaging, and per-tenant keys stay seeded below — they need tenancy or k8s
 surfaces this codebase doesn't have yet.
 
-## Batch 036–039 (tenancy hardening) — EXPANDED into ticket files (see tickets/036…039) ✔
-The domino batch: schema-per-tenant storage (036), tenant-scoped engine lanes (037),
-tenant-bound console sessions (038), and the onboarding drill in reference form (039).
-SCIM, tenant admin/operator views, and per-tenant model/tool configs seed the next batch.
+## Batch 036–039 (tenancy hardening) — EXPANDED into ticket files (see tickets/036…039) ✔ (all merged)
+The domino batch, landed: schema-per-tenant storage (036), tenant-scoped engine lanes
+(037), tenant-bound console sessions (038), and the onboarding drill in reference form
+(039, `drill-p4-3-onboarding.sh` — the SSO/SCIM + real-customer half stays human-owned
+in docs/drills/phase-4.md).
 
-## Remaining seeds (expand when 036–039 are done)
-- **Tenancy hardening** (schema-per-tenant baseline) — unblocks per-tenant keys/limits
-  and SCIM provisioning; **Helm/air-gap packaging** of the artifact (needs a k8s story);
-  **key rotation/re-encryption tooling** (follow-up to 035); **run_scores retention**
-  (follow-up to 032); web-click kill-switch flipping (write-path auth design, 033 note);
-  approval escalation/delegation-to-a-person (025 note).
+## Remaining seeds (tenancy landed — these are the next expansion candidates)
+- **SCIM provisioning** (accounts/tenants from the IdP; completes the onboarding
+  drill's automated half) and **per-tenant model/tool configs** (today model + tool
+  gateways are shared platform capability; per-tenant TOOLS_CONFIG/MODELS_CONFIG is
+  the natural next isolation cut).
+- **Tenant admin/operator views** — cross-tenant platform-operator console (038's
+  out-of-scope note: a real need, per-tenant views must never be the workaround).
+- **Helm/air-gap packaging** of the artifact (needs a k8s story); **key
+  rotation/re-encryption tooling** (follow-up to 035, now per-tenant); **run_scores
+  retention** (follow-up to 032); web-click kill-switch flipping (write-path auth
+  design, 033 note); approval escalation/delegation-to-a-person (025 note).
 - **Phase 3 drills still OPEN in docs/drills/phase-3.md:** model-swap (needs a successor
   model + real key), economics test (human-read from /costs).
 - **Connector SDK docs** + scoped read-only SQL tool (architecture §6's remaining
