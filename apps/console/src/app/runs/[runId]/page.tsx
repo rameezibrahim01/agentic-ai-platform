@@ -12,9 +12,21 @@ export default async function RunTimelinePage({
 }: {
   params: Promise<{ runId: string }>;
 }) {
-  await requireSession();
+  const session = await requireSession();
   const { runId } = await params;
-  const timeline = await runTimelineView(await getStore(), decodeURIComponent(runId));
+  const store = await getStore(session.tenant);
+  if (store === null) {
+    return (
+      <main>
+        <p>
+          this deployment is tenanted and your session is not bound to a tenant — there is
+          nothing to show.
+        </p>
+        <Link href="/runs">← all runs</Link>
+      </main>
+    );
+  }
+  const timeline = await runTimelineView(store, decodeURIComponent(runId));
 
   if (!timeline.ok) {
     return (

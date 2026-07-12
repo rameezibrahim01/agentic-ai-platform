@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import Link from "next/link";
 import { requireSession } from "../../lib/auth";
 
@@ -15,9 +16,24 @@ interface LimitsView {
   runsPerHourPerAgent?: number;
 }
 
-async function loadLimitsView(): Promise<{ configured: boolean; view?: LimitsView }> {
-  const path = process.env["LIMITS_CONFIG"];
-  if (!path) return { configured: false };
+async function loadLimitsView(
+  tenant?: string,
+): Promise<{ configured: boolean; source?: string; view?: LimitsView }> {
+  const sharedPath = process.env["LIMITS_CONFIG"];
+  if (!sharedPath) return { configured: false };
+  // tenanted sessions (038) see THEIR lane's limits: limits.<id>.config.json
+  // beside the shared file when present, else the shared file — the same
+  // resolution the worker's lane uses (ticket 037)
+  let path = sharedPath;
+  if (tenant !== undefined) {
+    const tenantPath = join(dirname(sharedPath), `limits.${tenant}.config.json`);
+    try {
+      await readFile(tenantPath);
+      path = tenantPath;
+    } catch {
+      // no tenant override — the shared file governs this lane
+    }
+  }
   const raw = JSON.parse(await readFile(path, "utf8")) as {
     killSwitches?: { global?: boolean; agents?: Record<string, boolean> };
     budgetCaps?: Record<string, number>;
@@ -39,8 +55,8 @@ async function loadLimitsView(): Promise<{ configured: boolean; view?: LimitsVie
 const cell: React.CSSProperties = { border: "1px solid #ccc", padding: "4px 8px", textAlign: "left" };
 
 export default async function LimitsPage() {
-  await requireSession();
-  const { configured, view } = await loadLimitsView();
+  const session = await requireSession();
+  const { configured, view } = await loadLimitsView(session.tenant);
   return (
     <main>
       <h2 style={{ fontSize: 16 }}>

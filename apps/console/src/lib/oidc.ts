@@ -5,11 +5,12 @@ import {
   issueSessionFor,
   jwksSchema,
   mapOidcRoles,
+  mapOidcTenant,
   oidcPrincipal,
   oidcRoleMappingSchema,
   verifyIdToken,
 } from "@platform/auth";
-import type { Jwks, Role } from "@platform/auth";
+import type { Jwks, OidcTenantMapping, Role } from "@platform/auth";
 
 // OIDC federation (ticket 034): any spec-compliant, self-hostable issuer.
 // Config is mounted (roles come from the map, never from the IdP alone);
@@ -24,9 +25,16 @@ export const oidcConfigSchema = z
     /** Name of the env var holding the client secret — never the secret itself. */
     clientSecretEnv: z.string().min(1),
     scopes: z.string().min(1).default("openid profile email"),
+    /** Tenant binding (ticket 038): which claim carries the IdP org value. */
+    tenantClaim: z.string().min(1).optional(),
+    /** IdP value → tenant id. Unmapped in a tenanted deployment = refused login. */
+    tenantMap: z.record(z.string().min(1)).optional(),
   })
   .merge(oidcRoleMappingSchema)
-  .strict();
+  .strict()
+  .refine((c) => (c.tenantClaim === undefined) === (c.tenantMap === undefined), {
+    message: "tenantClaim and tenantMap must be configured together",
+  });
 
 export type OidcConfig = z.infer<typeof oidcConfigSchema>;
 
@@ -140,6 +148,9 @@ export interface CallbackDeps {
   tokenEndpoint: string;
   jwks: Jwks;
   mapping: { rolesClaim: string; roleMap: Record<string, Role[]>; defaultRoles: Role[] };
+  /** Tenanted deployment (038): a login MUST resolve a tenant or be refused. */
+  tenanted: boolean;
+  tenantMapping?: OidcTenantMapping;
   sessionSecret: string;
   sessionTtlMs: number;
   fetchFn: typeof fetch;
@@ -154,7 +165,7 @@ export interface CallbackParams {
 }
 
 export type CallbackResult =
-  | { ok: true; sessionToken: string; principal: string; roles: Role[] }
+  | { ok: true; sessionToken: string; principal: string; roles: Role[]; tenant?: string }
   | { ok: false; status: 400 | 401 | 502; error: string };
 
 export async function handleOidcCallback(
@@ -203,6 +214,26 @@ export async function handleOidcCallback(
 
   const roles = mapOidcRoles(verified.claims, deps.mapping);
   const principal = oidcPrincipal(verified.claims);
+
+  // Tenant binding (038): the tenant comes from the config map alone, and a
+  // tenanted deployment NEVER guesses — unmapped (or unconfigured) is a
+  // refused login, not a default workspace.
+  let tenant: string | undefined;
+  if (deps.tenantMapping !== undefined) {
+    const mapped = mapOidcTenant(verified.claims, deps.tenantMapping);
+    if (mapped.ok) {
+      tenant = mapped.tenant;
+    } else if (deps.tenanted) {
+      return { ok: false, status: 401, error: `tenant mapping refused: ${mapped.reason}` };
+    }
+  } else if (deps.tenanted) {
+    return {
+      ok: false,
+      status: 401,
+      error: "tenanted deployment with no OIDC tenant mapping — refusing login",
+    };
+  }
+
   const sessionToken = issueSessionFor(
     verified.claims.sub,
     principal,
@@ -210,6 +241,7 @@ export async function handleOidcCallback(
     deps.sessionTtlMs,
     deps.sessionSecret,
     deps.nowMs(),
+    tenant,
   );
-  return { ok: true, sessionToken, principal, roles };
+  return { ok: true, sessionToken, principal, roles, ...(tenant !== undefined ? { tenant } : {}) };
 }

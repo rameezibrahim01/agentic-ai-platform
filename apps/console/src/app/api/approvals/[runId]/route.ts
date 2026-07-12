@@ -1,11 +1,15 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { can } from "@platform/auth";
 import { currentSession } from "../../../../lib/auth";
+import { getStore, isTenanted } from "../../../../lib/store";
+import { decideApprovalSignal } from "../../../../lib/tenancy";
 import { signalApprovalDecision } from "../../../../lib/temporal";
 
 // Approve/deny a pending intent. The decision is signed by the SESSION
 // principal — the audit's `who` is the human who clicked, never a service
-// account (ticket 018).
+// account (ticket 018). In a tenanted deployment (038) the SESSION tenant's
+// store gates the signal: a run the session cannot see is a 404, and no
+// signal leaves the console.
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ runId: string }> },
@@ -30,11 +34,25 @@ export async function POST(
   const comment = String(form.get("comment") ?? "").trim();
 
   try {
-    await signalApprovalDecision(decodeURIComponent(runId), {
-      granted: decision === "approve",
-      by: session.principal,
-      ...(comment ? { comment } : {}),
-    });
+    const outcome = await decideApprovalSignal(
+      {
+        tenanted: isTenanted(),
+        store: await getStore(session.tenant),
+        signal: (workflowId, d) => signalApprovalDecision(workflowId, d),
+      },
+      {
+        runId: decodeURIComponent(runId),
+        tenant: session.tenant,
+        decision: {
+          granted: decision === "approve",
+          by: session.principal,
+          ...(comment ? { comment } : {}),
+        },
+      },
+    );
+    if (outcome === "not_found") {
+      return NextResponse.json({ error: "run not found" }, { status: 404 });
+    }
   } catch (error) {
     return NextResponse.json(
       {

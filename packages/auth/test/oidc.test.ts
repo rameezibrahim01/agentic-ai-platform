@@ -3,6 +3,7 @@ import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import {
   mapOidcRoles,
+  mapOidcTenant,
   oidcPrincipal,
   verifyIdToken,
   verifySession,
@@ -127,5 +128,33 @@ describe("role mapping + federated sessions (ticket 034)", () => {
         roles: ["approver"],
       });
     }
+  });
+});
+
+describe("tenant mapping (ticket 038)", () => {
+  const TENANTS = { tenantClaim: "org", tenantMap: { "acme-corp": "acme" } };
+
+  it("the tenant comes from the config map alone; unmapped and missing are typed refusals", () => {
+    const mapped = { ...BASE, org: "acme-corp" } as unknown as IdTokenClaims;
+    expect(mapOidcTenant(mapped, TENANTS)).toEqual({ ok: true, tenant: "acme" });
+
+    const unmapped = { ...BASE, org: "someone-else" } as unknown as IdTokenClaims;
+    expect(mapOidcTenant(unmapped, TENANTS)).toEqual({ ok: false, reason: "unmapped_tenant" });
+
+    const missing = { ...BASE } as unknown as IdTokenClaims;
+    expect(mapOidcTenant(missing, TENANTS)).toEqual({ ok: false, reason: "missing_claim" });
+
+    const nonString = { ...BASE, org: ["acme-corp"] } as unknown as IdTokenClaims;
+    expect(mapOidcTenant(nonString, TENANTS)).toEqual({ ok: false, reason: "missing_claim" });
+  });
+
+  it("the tenant rides the SAME session: issueSessionFor round-trips it", () => {
+    const claims = { ...BASE, org: "acme-corp" } as unknown as IdTokenClaims;
+    const result = mapOidcTenant(claims, TENANTS);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const token = issueSessionFor(claims.sub, oidcPrincipal(claims), ["viewer"], 1000, "s3cret", NOW, result.tenant);
+    const verified = verifySession(token, "s3cret", NOW + 1);
+    expect(verified.ok && verified.claims.tenant).toBe("acme");
   });
 });
