@@ -7,6 +7,10 @@
         { "name": "notes.append", "version": "v1" },
         { "name": "memo.echo", "version": "v1" }
       ]
+    },
+    {
+      "agent": "walkthrough-agent@v1",
+      "tools": [{ "name": "notes.append", "version": "v1" }]
     }
   ],
   "egressAllowlist": [],

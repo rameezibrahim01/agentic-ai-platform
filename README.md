@@ -4,6 +4,10 @@ Enterprise agentic platform: durable AI-agent runs, governed tool execution, ful
 deployable inside client networks. See `docs/architecture.md` (what) and `docs/build-plan.md`
 (in what order, with what proof).
 
+**New here? Start with [GETTING-STARTED.md](GETTING-STARTED.md)** — boot the
+platform with Docker, create an agent in the browser, run it, approve its
+first governed write, and read the audit trail. ~15 minutes, no code.
+
 ## Quickstart
 
 ```sh
