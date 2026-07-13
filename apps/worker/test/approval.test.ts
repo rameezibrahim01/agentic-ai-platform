@@ -418,4 +418,60 @@ describe("approval flow in the engine (ticket 017)", () => {
     },
     120_000,
   );
+
+  it(
+    "delegation (ticket 050): the handoff lands in the log via the workflow; the delegate's grant executes",
+    async (ctx) => {
+      if (!env) return ctx.skip();
+      const runId = "run-delegate";
+      const taskQueue = "tq-delegate";
+      const { store, activities, writeExecuted } = makeWorld(WRITE_SCRIPT, { env: "prod" });
+      const worker = await Worker.create({
+        connection: env.nativeConnection,
+        taskQueue,
+        workflowsPath,
+        activities,
+      });
+
+      const result = await worker.runUntil(async () => {
+        const handle = await startAgentRun(
+          env!.client,
+          { ...runInput(runId), approvalTtlMs: 60_000 },
+          { taskQueue },
+        );
+        await waitForVersion(store, runId, 5); // paused, awaiting approval
+        await sendApprovalDelegation(env!.client, runId, {
+          toPrincipal: "user:omar",
+          by: "user:lead",
+        });
+        await waitForVersion(store, runId, 6); // the handoff is a FACT in the log
+        await sendApprovalDecision(env!.client, runId, { granted: true, by: "user:omar" });
+        return handle.result();
+      });
+
+      expect(result.outcome).toBe("completed");
+      expect(writeExecuted).toHaveLength(1); // exactly once
+      expect(await eventTypes(store, runId)).toEqual([
+        "RunStarted",
+        "ModelCalled",
+        "ToolIntentEmitted",
+        "PolicyEvaluated",
+        "ApprovalRequested",
+        "ApprovalDelegated",
+        "ApprovalGranted",
+        "ToolExecuted",
+        "ModelCalled",
+        "RunCompleted",
+      ]);
+      const events = (await store.load(runId))!.events;
+      expect(events.find((e) => e.type === "ApprovalDelegated")).toMatchObject({
+        toPrincipal: "user:omar",
+        by: "user:lead",
+      });
+      expect(events.find((e) => e.type === "ApprovalGranted")).toMatchObject({
+        by: "user:omar", // the audit's who is the delegate who clicked
+      });
+    },
+    120_000,
+  );
 });

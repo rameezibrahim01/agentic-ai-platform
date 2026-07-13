@@ -21,6 +21,7 @@ const {
   resolveStandingGrant,
   recordApprovalDecision,
   recordEscalation,
+  recordDelegation,
   executeApprovedIntent,
   completeRun,
   recordBudgetFailure,
@@ -40,6 +41,15 @@ export interface ApprovalDecision {
 }
 
 export const approvalDecisionSignal = defineSignal<[ApprovalDecision]>("approvalDecision");
+
+export interface ApprovalDelegation {
+  toPrincipal: string;
+  by: string;
+}
+
+/** Ticket 050: delegation rides a signal like decisions do — the workflow is
+ * the single writer of an active run's log, so the fact is appended HERE. */
+export const approvalDelegationSignal = defineSignal<[ApprovalDelegation]>("approvalDelegation");
 
 export interface AgentRunInput {
   /** Omitted for scheduled runs: the workflow adopts its workflowId (ticket 010). */
@@ -90,6 +100,10 @@ export async function agentRun(input: AgentRunInput): Promise<AgentRunResult> {
   let pendingDecision: ApprovalDecision | undefined;
   setHandler(approvalDecisionSignal, (decision) => {
     pendingDecision = decision;
+  });
+  let pendingDelegation: ApprovalDelegation | undefined;
+  setHandler(approvalDelegationSignal, (delegation) => {
+    pendingDelegation = delegation;
   });
 
   // Standing grant (ticket 020): resolved fresh at every occurrence, so a
@@ -245,10 +259,36 @@ export async function agentRun(input: AgentRunInput): Promise<AgentRunResult> {
       // With an escalation configured (048), the wait has two legs: silence
       // at afterMs appends ApprovalEscalated (a fact in the log, idempotent
       // under retry), then the wait continues to the ORIGINAL expiry.
+      // one wait leg: until a DECISION or the deadline, appending any
+      // delegation facts (050) that arrive along the way
+      const awaitDecision = async (deadlineMs: number): Promise<boolean> => {
+        let remaining = deadlineMs;
+        for (;;) {
+          const legStart = Date.now(); // deterministic workflow time
+          const woke = await condition(
+            () => pendingDecision !== undefined || pendingDelegation !== undefined,
+            remaining,
+          );
+          if (!woke) return false;
+          if (pendingDecision !== undefined) return true;
+          const delegation = pendingDelegation!;
+          pendingDelegation = undefined;
+          const recorded = await recordDelegation({
+            runId,
+            expectedVersion: version,
+            toPrincipal: delegation.toPrincipal,
+            by: delegation.by,
+          });
+          version = recorded.version;
+          remaining -= Date.now() - legStart;
+          if (remaining <= 0) return pendingDecision !== undefined;
+        }
+      };
+
       let signalled: boolean;
       const escalation = input.escalation;
       if (escalation !== undefined && escalation.afterMs > 0 && escalation.afterMs < approvalTtlMs) {
-        signalled = await condition(() => pendingDecision !== undefined, escalation.afterMs);
+        signalled = await awaitDecision(escalation.afterMs);
         if (!signalled) {
           const escalated = await recordEscalation({
             runId,
@@ -256,13 +296,10 @@ export async function agentRun(input: AgentRunInput): Promise<AgentRunResult> {
             toGroup: escalation.toGroup,
           });
           version = escalated.version;
-          signalled = await condition(
-            () => pendingDecision !== undefined,
-            approvalTtlMs - escalation.afterMs,
-          );
+          signalled = await awaitDecision(approvalTtlMs - escalation.afterMs);
         }
       } else {
-        signalled = await condition(() => pendingDecision !== undefined, approvalTtlMs);
+        signalled = await awaitDecision(approvalTtlMs);
       }
       const decision: ApprovalDecision =
         signalled && pendingDecision !== undefined

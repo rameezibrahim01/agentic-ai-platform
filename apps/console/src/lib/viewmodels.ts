@@ -55,6 +55,8 @@ function summarize(event: RunEvent): string {
       return `approval requested from ${event.approverGroup}`;
     case "ApprovalEscalated":
       return `approval escalated to ${event.toGroup} (original expiry stands)`;
+    case "ApprovalDelegated":
+      return `approval delegated to ${event.toPrincipal} by ${event.by}`;
     case "ApprovalGranted":
       return `approved by ${event.by}`;
     case "ApprovalDenied":
@@ -157,6 +159,8 @@ export interface PendingApprovalRow {
   requestedAt: number;
   /** Ticket 048: the fallback group the request escalated to, from the log. */
   escalatedTo?: string;
+  /** Ticket 050: the named person the request was handed to, from the log. */
+  delegatedTo?: string;
 }
 
 /** Runs paused awaiting a human — the inbox's rows, straight from the log (ticket 018). */
@@ -186,6 +190,9 @@ export async function pendingApprovalsView(store: EventStore): Promise<PendingAp
       // escalation is computed from the LOG (048), never trusted from a form
       ...(state.pendingApproval.escalatedTo !== undefined
         ? { escalatedTo: state.pendingApproval.escalatedTo }
+        : {}),
+      ...(state.pendingApproval.delegatedTo !== undefined
+        ? { delegatedTo: state.pendingApproval.delegatedTo }
         : {}),
     });
   }

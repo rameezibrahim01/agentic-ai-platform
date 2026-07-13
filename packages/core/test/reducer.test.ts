@@ -300,3 +300,47 @@ describe("approval escalation (ticket 048)", () => {
     expect(pre048.ok && pre048.state.pendingApproval).toBeNull();
   });
 });
+
+describe("delegation to a person (ticket 050)", () => {
+  const base = (seq: number, at: number) => ({ runId: "run-del", seq, at });
+  const toAwaiting: RunEvent[] = [
+    { type: "RunStarted", ...base(0, 1), agent: "a@v1", principal: "u", input: {} },
+    { type: "ModelCalled", ...base(1, 2), gatewayReqId: "g", model: "m", tokensIn: 1, tokensOut: 1, costUsd: 0 },
+    { type: "ToolIntentEmitted", ...base(2, 3), tool: "t.write", args: {}, risk: "write" },
+    { type: "PolicyEvaluated", ...base(3, 4), decision: "require_approval", rule: "r" },
+    { type: "ApprovalRequested", ...base(4, 5), approverGroup: "approvers", expiresAt: 100 },
+  ];
+
+  it("legal only while awaiting; coexists with escalation; grant afterwards proceeds", () => {
+    const both = replay([
+      ...toAwaiting,
+      { type: "ApprovalEscalated", ...base(5, 6), toGroup: "managers" },
+      { type: "ApprovalDelegated", ...base(6, 7), toPrincipal: "user:omar", by: "user:lead" },
+    ]);
+    expect(both.ok).toBe(true);
+    if (!both.ok) return;
+    expect(both.state.pendingApproval).toEqual({
+      approverGroup: "approvers",
+      expiresAt: 100,
+      escalatedTo: "managers",
+      delegatedTo: "user:omar",
+    });
+
+    const granted = replay([
+      ...toAwaiting,
+      { type: "ApprovalDelegated", ...base(5, 6), toPrincipal: "user:omar", by: "user:lead" },
+      { type: "ApprovalGranted", ...base(6, 7), by: "user:omar" },
+    ]);
+    expect(granted.ok && granted.state.status).toBe("running");
+    expect(granted.ok && granted.state.pendingApproval).toBeNull();
+  });
+
+  it("misplaced delegation is a typed rejection", () => {
+    const atStart = replay([
+      toAwaiting[0]!,
+      { type: "ApprovalDelegated", ...base(1, 2), toPrincipal: "user:omar", by: "user:lead" },
+    ]);
+    expect(atStart.ok).toBe(false);
+    if (!atStart.ok) expect(atStart.reason).toMatchObject({ code: "illegal_transition" });
+  });
+});

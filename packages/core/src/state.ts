@@ -21,6 +21,8 @@ export interface PendingApproval {
   readonly expiresAt: number;
   /** Set when the request escalated to a fallback group (ticket 048). */
   readonly escalatedTo?: string;
+  /** Set when the request was handed to a named principal (ticket 050). */
+  readonly delegatedTo?: string;
 }
 
 export type RunOutcome =
@@ -193,6 +195,17 @@ export function reduce(state: RunState | null, event: RunEvent): ReduceResult {
         ...state,
         seq: event.seq,
         pendingApproval: { ...state.pendingApproval, escalatedTo: event.toGroup },
+      });
+    }
+
+    case "ApprovalDelegated": {
+      if (state.status !== "awaiting_approval" || state.pendingApproval === null) {
+        return illegal(event.type, state.status, "no approval is pending to delegate");
+      }
+      return ok({
+        ...state,
+        seq: event.seq,
+        pendingApproval: { ...state.pendingApproval, delegatedTo: event.toPrincipal },
       });
     }
 

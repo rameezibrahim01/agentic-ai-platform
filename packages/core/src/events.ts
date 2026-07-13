@@ -73,6 +73,17 @@ export const approvalEscalatedSchema = z
   })
   .strict();
 
+export const approvalDelegatedSchema = z
+  .object({
+    ...eventBase,
+    type: z.literal("ApprovalDelegated"),
+    /** The named PERSON who may now decide (alongside the approver roles). */
+    toPrincipal: z.string().min(1),
+    /** Who handed it off — the audit's who (ticket 050). */
+    by: z.string().min(1),
+  })
+  .strict();
+
 export const approvalGrantedSchema = z
   .object({
     ...eventBase,
@@ -156,6 +167,7 @@ export const runEventSchema = z.discriminatedUnion("type", [
   policyEvaluatedSchema,
   approvalRequestedSchema,
   approvalEscalatedSchema,
+  approvalDelegatedSchema,
   approvalGrantedSchema,
   approvalDeniedSchema,
   toolExecutedSchema,
@@ -174,6 +186,7 @@ export type ToolIntentEmitted = z.infer<typeof toolIntentEmittedSchema>;
 export type PolicyEvaluated = z.infer<typeof policyEvaluatedSchema>;
 export type ApprovalRequested = z.infer<typeof approvalRequestedSchema>;
 export type ApprovalEscalated = z.infer<typeof approvalEscalatedSchema>;
+export type ApprovalDelegated = z.infer<typeof approvalDelegatedSchema>;
 export type ApprovalGranted = z.infer<typeof approvalGrantedSchema>;
 export type ApprovalDenied = z.infer<typeof approvalDeniedSchema>;
 export type ToolExecuted = z.infer<typeof toolExecutedSchema>;

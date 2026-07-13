@@ -142,7 +142,7 @@ export default async function ApprovalsPage() {
             <th style={cell}>requested (UTC)</th>
             <th style={cell}>expires (UTC)</th>
             <th style={cell}>sla</th>
-            {canApprove ? <th style={cell}>decision</th> : null}
+            <th style={cell}>decision</th>
           </tr>
         </thead>
         <tbody>
@@ -170,12 +170,29 @@ export default async function ApprovalsPage() {
                     · <b style={{ color: "#b06" }}>escalated to {row.escalatedTo}</b>
                   </>
                 ) : null}
+                {row.delegatedTo !== undefined ? (
+                  <>
+                    {" "}
+                    · <b style={{ color: "#06b" }}>delegated to {row.delegatedTo}</b>
+                  </>
+                ) : null}
               </td>
-              {canApprove ? (
+              {canApprove || row.delegatedTo === session.principal ? (
                 <td style={cell}>
                   <DecisionForm action={`/api/approvals/${encodeURIComponent(row.runId)}`} />
+                  {canApprove ? (
+                    <form
+                      action={`/api/approvals/${encodeURIComponent(row.runId)}/delegate`}
+                      method="post"
+                    >
+                      <input name="toPrincipal" placeholder="user:someone to delegate" />{" "}
+                      <button type="submit">delegate</button>
+                    </form>
+                  ) : null}
                 </td>
-              ) : null}
+              ) : (
+                <td style={cell}>—</td>
+              )}
             </tr>
           ))}
         </tbody>

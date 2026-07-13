@@ -35,6 +35,16 @@ export async function signalApprovalDecision(
   await client.workflow.getHandle(runId).signal("approvalDecision", decision);
 }
 
+/** Hand the pending approval to a named person (ticket 050) — by signal,
+ * because the workflow is the single writer of an active run's log. */
+export async function signalApprovalDelegation(
+  workflowId: string,
+  delegation: { toPrincipal: string; by: string },
+): Promise<void> {
+  const client = await getClient();
+  await client.workflow.getHandle(workflowId).signal("approvalDelegation", delegation);
+}
+
 /**
  * Start an agentRun by workflow-type name (ticket 023) — the string keeps
  * the worker package out of the Next bundle, same reasoning as the signal
