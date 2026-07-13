@@ -39,3 +39,15 @@ The env var holds the connection string (a read-scoped role is on the client;
 belt: every query also runs inside a `READ ONLY` transaction with a statement
 timeout and a row cap). A named-but-empty env refuses boot. Point it at a
 replica or a scoped role — never the platform's own superuser.
+
+## The agents registry has two writers (tickets 053/055)
+`agents.config.json` is edited by `scripts/promote.sh`/`rollback.sh` AND by
+the console (builder creates, promote/rollback pointer moves). The file
+stays the single source of truth with last-writer-wins between them; both
+sides validate the WHOLE file before writing, so a concurrent edit can be
+lost but never corrupted. Versions are append-only from every writer —
+028's digest suite still fails CI if a published version's spec changes.
+Console-authored versions have no golden eval suite: promoting one is
+allowed but marked `unproven` in the UI and in `ops_audit` (regenerate the
+manifest with `scripts/evals/gen-console-manifest.sh` when suites change).
+Rollback is never gated — by eval status or anything else.

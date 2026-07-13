@@ -1,7 +1,15 @@
 import { readFile } from "node:fs/promises";
 import Link from "next/link";
+import type { SessionClaims } from "@platform/auth";
 import { requireSession } from "../../../lib/auth";
 import { catalogRowFor, pointerRefs, readAgentsConfig } from "../../../lib/agents";
+import { evalStatusFor, pointerGate } from "../../../lib/promote";
+
+// promote/rollback controls (055) render only for sessions the gate admits —
+// the POST re-checks everything server-side either way
+function canMove(session: Pick<SessionClaims, "roles">, env: string): boolean {
+  return pointerGate(session, env) === "admitted";
+}
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +24,7 @@ export default async function AgentDetailPage({
 }: {
   params: Promise<{ name: string }>;
 }) {
-  await requireSession();
+  const session = await requireSession();
   const { name: encoded } = await params;
   const name = decodeURIComponent(encoded);
   const result = await readAgentsConfig(process.env, (path) => readFile(path, "utf8"));
@@ -58,17 +66,42 @@ export default async function AgentDetailPage({
         <Link href={`/agents/new?from=${encodeURIComponent(row.name)}`}>new version</Link> ·{" "}
         <Link href="/runs">runs</Link>
       </h2>
-      <p>
-        {row.aliased
-          ? row.envs
-              .map(
-                ([env, pointer]) =>
-                  `${env}: ${pointer.current}` +
-                  (pointer.previous !== undefined ? ` (previous ${pointer.previous})` : ""),
-              )
-              .join(" · ")
-          : "no alias — versions below are reachable only as direct name@vN references"}
-      </p>
+      {row.aliased ? (
+        row.envs.map(([env, pointer]) => (
+          <p key={env}>
+            <b>{env}</b>: {pointer.current}
+            {pointer.previous !== undefined ? ` (previous ${pointer.previous})` : ""}{" "}
+            {canMove(session, env) ? (
+              <>
+                <form action="/api/agents/pointer" method="post" style={{ display: "inline" }}>
+                  <input type="hidden" name="kind" value="promote" />
+                  <input type="hidden" name="name" value={row.name} />
+                  <input type="hidden" name="env" value={env} />
+                  <select name="to" defaultValue={pointer.current}>
+                    {row.versions.map((version) => (
+                      <option key={version.id} value={version.id}>
+                        {version.id}
+                        {evalStatusFor(version.id) === "unproven" ? " (unproven — no eval suite)" : ""}
+                      </option>
+                    ))}
+                  </select>{" "}
+                  <button type="submit">promote to {env}</button>
+                </form>{" "}
+                {pointer.previous !== undefined ? (
+                  <form action="/api/agents/pointer" method="post" style={{ display: "inline" }}>
+                    <input type="hidden" name="kind" value="rollback" />
+                    <input type="hidden" name="name" value={row.name} />
+                    <input type="hidden" name="env" value={env} />
+                    <button type="submit">rollback (restores {pointer.previous})</button>
+                  </form>
+                ) : null}
+              </>
+            ) : null}
+          </p>
+        ))
+      ) : (
+        <p>no alias — versions below are reachable only as direct name@vN references</p>
+      )}
       <table style={{ borderCollapse: "collapse" }}>
         <thead>
           <tr>

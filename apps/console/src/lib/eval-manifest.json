@@ -1,0 +1,6 @@
+{
+  "agentsWithSuites": [
+    "demo-agent@v1",
+    "nightly-triage@v1"
+  ]
+}
