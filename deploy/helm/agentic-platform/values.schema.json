@@ -1,0 +1,123 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "title": "agentic-platform values (strict — unknown keys refuse, the zod discipline applied to ops)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["image", "platformEnv", "temporal", "externalPostgres", "secrets", "scim", "configs", "console", "worker"],
+  "definitions": {
+    "secretRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "key"],
+      "properties": {
+        "name": { "type": "string" },
+        "key": { "type": "string" }
+      }
+    }
+  },
+  "properties": {
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["registry", "worker", "console", "tag", "pullPolicy"],
+      "properties": {
+        "registry": { "type": "string" },
+        "worker": { "type": "string", "minLength": 1 },
+        "console": { "type": "string", "minLength": 1 },
+        "tag": { "type": "string", "minLength": 1 },
+        "pullPolicy": { "enum": ["Always", "IfNotPresent", "Never"] }
+      }
+    },
+    "platformEnv": { "type": "string", "minLength": 1 },
+    "temporal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["address", "namespace"],
+      "properties": {
+        "address": { "type": "string", "minLength": 1 },
+        "namespace": { "type": "string", "minLength": 1 }
+      }
+    },
+    "externalPostgres": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["urlSecretName", "urlSecretKey"],
+      "properties": {
+        "urlSecretName": { "type": "string", "minLength": 1 },
+        "urlSecretKey": { "type": "string", "minLength": 1 }
+      }
+    },
+    "secrets": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["anthropicApiKey", "platformDataKey", "authSessionSecret", "extra"],
+      "properties": {
+        "anthropicApiKey": { "$ref": "#/definitions/secretRef" },
+        "platformDataKey": { "$ref": "#/definitions/secretRef" },
+        "authSessionSecret": { "$ref": "#/definitions/secretRef" },
+        "extra": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["env", "name", "key"],
+            "properties": {
+              "env": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" },
+              "name": { "type": "string", "minLength": 1 },
+              "key": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    },
+    "scim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tokenSecret"],
+      "properties": { "tokenSecret": { "$ref": "#/definitions/secretRef" } }
+    },
+    "configs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tools", "agents", "limits", "tenants"],
+      "properties": {
+        "tools": { "type": "object" },
+        "agents": { "type": "object" },
+        "limits": { "type": "object" },
+        "tenants": { "type": ["object", "null"] }
+      }
+    },
+    "oidc": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "config": { "type": "object" },
+        "clientSecret": { "$ref": "#/definitions/secretRef" }
+      },
+      "required": ["config", "clientSecret"]
+    },
+    "console": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["service", "replicas"],
+      "properties": {
+        "service": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "port"],
+          "properties": {
+            "type": { "enum": ["ClusterIP", "NodePort", "LoadBalancer"] },
+            "port": { "type": "integer", "minimum": 1, "maximum": 65535 }
+          }
+        },
+        "replicas": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "worker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["replicas"],
+      "properties": { "replicas": { "type": "integer", "minimum": 1 } }
+    }
+  }
+}

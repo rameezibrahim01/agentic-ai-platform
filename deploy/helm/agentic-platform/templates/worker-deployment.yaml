@@ -1,0 +1,47 @@
+# The worker owns migrations and every side effect (through the tool
+# gateway). Its config mounts are read-only; NOTES_FILE (the reference write)
+# is an emptyDir in this profile — clients wire a PVC or their real system.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "platform.name" . }}-worker
+  labels:
+    app.kubernetes.io/component: worker
+    {{- include "platform.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.worker.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: worker
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: worker
+        {{- include "platform.labels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: worker
+          image: {{ include "platform.image" (dict "registry" .Values.image.registry "name" .Values.image.worker "tag" .Values.image.tag) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            {{- include "platform.commonEnv" . | nindent 12 }}
+            - name: TOOLS_CONFIG
+              value: /etc/platform/tools.config.json
+            - name: AGENTS_CONFIG
+              value: /etc/platform/agents.config.json
+            - name: NOTES_FILE
+              value: /data/notes/notes.log
+            {{- include "platform.secretEnv" (dict "env" "ANTHROPIC_API_KEY" "ref" .Values.secrets.anthropicApiKey) | nindent 12 }}
+          volumeMounts:
+            - name: platform-config
+              mountPath: /etc/platform
+              readOnly: true
+            - name: notes
+              mountPath: /data/notes
+      volumes:
+        - name: platform-config
+          configMap:
+            name: {{ include "platform.name" . }}-config
+        - name: notes
+          emptyDir: {}
