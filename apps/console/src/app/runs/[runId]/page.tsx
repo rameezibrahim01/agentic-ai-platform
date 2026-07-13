@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { requireSession } from "../../../lib/auth";
 import { getStore } from "../../../lib/store";
+import { baseName } from "../../../lib/agents";
 import { formatUsd, formatUtc, runTimelineView } from "../../../lib/viewmodels";
 
 export const dynamic = "force-dynamic";
@@ -45,7 +46,11 @@ export default async function RunTimelinePage({
     <main>
       <h2 style={{ fontSize: 16 }}>run {timeline.runId}</h2>
       <p>
-        status: <b>{timeline.status}</b> · outcome: {timeline.outcome} · agent: {timeline.agent} ·
+        status: <b>{timeline.status}</b> · outcome: {timeline.outcome} · agent:{" "}
+        <Link href={`/agents/${encodeURIComponent(baseName(timeline.agent))}`}>
+          {timeline.agent}
+        </Link>{" "}
+        ·
         principal: {timeline.principal} · started: {formatUtc(timeline.startedAt)}
       </p>
       <p>
