@@ -22,3 +22,17 @@ stated honestly).
 ## Releases
 Semver'd artifact = images + chart + forward-only migrations, installable offline from a
 registry tarball. Telemetry phone-home is opt-in. License verification works offline.
+
+## The read-only SQL tool (ticket 045)
+`sql.query@v1` exists only when `tools.config.json` lists it AND names the
+connection env var:
+
+```json
+{ "tools": ["sql.query@v1"], "sqlTools": { "connectionEnv": "SQL_TOOL_DATABASE_URL" },
+  "grants": [{ "agent": "your-agent@v1", "tools": [{ "name": "sql.query", "version": "v1" }] }] }
+```
+
+The env var holds the connection string (a read-scoped role is on the client;
+belt: every query also runs inside a `READ ONLY` transaction with a statement
+timeout and a row cap). A named-but-empty env refuses boot. Point it at a
+replica or a scoped role — never the platform's own superuser.
