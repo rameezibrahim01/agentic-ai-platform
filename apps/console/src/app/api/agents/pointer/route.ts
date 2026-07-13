@@ -2,6 +2,7 @@ import { readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { NextResponse, type NextRequest } from "next/server";
 import { currentSession } from "../../../../lib/auth";
+import { errorRedirectPath, wantsHtml } from "../../../../lib/http";
 import { getOpsAudit } from "../../../../lib/ops-audit";
 import { handlePointerMove } from "../../../../lib/promote";
 import type { PointerRequest } from "../../../../lib/promote";
@@ -25,24 +26,29 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   if (session === null) {
     return NextResponse.redirect(new URL("/login", request.url), 303);
   }
-  const audit = getOpsAudit();
-  if (audit === null) {
-    return NextResponse.json(
-      { error: "pointer moves require the audit store — set DATABASE_URL" },
-      { status: 409 },
-    );
-  }
 
   const form = await request.formData();
   const kind = String(form.get("kind") ?? "");
   const name = String(form.get("name") ?? "");
   const env = String(form.get("env") ?? "");
   const to = String(form.get("to") ?? "");
+
+  // a browser form post lands back on the page with the message rendered;
+  // programmatic callers keep JSON + the status code (issue #105)
+  const refuse = (status: number, error: string): NextResponse =>
+    wantsHtml(request.headers.get("accept")) && name
+      ? NextResponse.redirect(
+          new URL(errorRedirectPath(`/agents/${encodeURIComponent(name)}`, error), request.url),
+          303,
+        )
+      : NextResponse.json({ error }, { status });
+
+  const audit = getOpsAudit();
+  if (audit === null) {
+    return refuse(409, "pointer moves require the audit store — set DATABASE_URL");
+  }
   if ((kind !== "promote" && kind !== "rollback") || !name || !env || (kind === "promote" && !to)) {
-    return NextResponse.json(
-      { error: "kind must be promote|rollback with name, env (and to for promote)" },
-      { status: 400 },
-    );
+    return refuse(400, "kind must be promote|rollback with name, env (and to for promote)");
   }
   const pointerRequest: PointerRequest =
     kind === "promote" ? { kind, name, env, to } : { kind, name, env };
@@ -68,5 +74,5 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   if (result.status === 200) {
     return NextResponse.redirect(new URL(`/agents/${encodeURIComponent(name)}`, request.url), 303);
   }
-  return NextResponse.json(result.body, { status: result.status });
+  return refuse(result.status, String(result.body["error"] ?? "pointer move failed"));
 }

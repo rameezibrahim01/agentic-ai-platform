@@ -139,6 +139,29 @@ export function catalogRowFor(config: ConsoleAgentsConfig, name: string): Catalo
   return agentCatalog(config).find((row) => row.name === name);
 }
 
+/** The environments every aliased agent page must offer (issue #105): a
+ * fresh builder-created agent has only a dev pointer, but "promote to prod"
+ * must exist BEFORE prod does — else the walkthrough dead-ends. */
+export const DEFAULT_ENVS = ["dev", "prod"] as const;
+
+/** [env, pointer?] for the union of default and existing envs, env-sorted.
+ * pointer === undefined means "never promoted here yet". */
+export function envRows(row: CatalogRow): [string, AgentPointer | undefined][] {
+  const names = new Set<string>([...DEFAULT_ENVS, ...row.envs.map(([env]) => env)]);
+  return [...names]
+    .sort((a, b) => a.localeCompare(b))
+    .map((env) => [env, row.envs.find(([name]) => name === env)?.[1]]);
+}
+
+/** Versions a promote could actually move this pointer to — offering the
+ * current version is offering a refusal (issue #105). */
+export function promotableTo(
+  versions: readonly AgentVersionSpec[],
+  pointer: AgentPointer | undefined,
+): AgentVersionSpec[] {
+  return versions.filter((version) => version.id !== pointer?.current);
+}
+
 /** Which env pointers reference this version, e.g. ["dev (current)", "prod (previous)"]. */
 export function pointerRefs(row: CatalogRow, id: string): string[] {
   const refs: string[] = [];

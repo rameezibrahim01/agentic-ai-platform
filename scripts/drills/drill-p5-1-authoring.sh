@@ -106,6 +106,29 @@ psql_q "select detail->>'evalStatus' from ops_audit where action='agent_pointer_
 }
 echo "PASS: pointer moved; the audit row says out loud there is no eval suite"
 
+echo "== drill p5-1: a dead-end click lands back on the PAGE; machines keep JSON (issue #105) =="
+# re-promoting to the already-current version is a refusal: a browser (Accept:
+# text/html) must be redirected back to the agent page with the message...
+STATUS=$(curl -s -o /dev/null -w "%{http_code}" -b "$JAR" -H "Accept: text/html" \
+  -X POST http://localhost:3000/api/agents/pointer \
+  -d "kind=promote" -d "name=walkthrough-agent" -d "env=prod" -d "to=walkthrough-agent@v1")
+[ "$STATUS" = "303" ] || {
+  echo "FAIL: browser-shaped refusal returned HTTP $STATUS (expected 303 back to the page)"
+  exit 1
+}
+# ...while a programmatic caller still gets the JSON refusal + status code
+BODY=$(curl -s -w "\n%{http_code}" -b "$JAR" -X POST http://localhost:3000/api/agents/pointer \
+  -d "kind=promote" -d "name=walkthrough-agent" -d "env=prod" -d "to=walkthrough-agent@v1")
+echo "$BODY" | tail -1 | grep -q "^400$" || {
+  echo "FAIL: machine-shaped refusal did not return HTTP 400"
+  exit 1
+}
+echo "$BODY" | head -1 | grep -q "already points at" || {
+  echo "FAIL: machine-shaped refusal lost the JSON error body"
+  exit 1
+}
+echo "PASS: refusals are a page for people, JSON for machines"
+
 RUN_ID="web-walkthrough-$(date -u +%s)"
 echo "== drill p5-1: RUN it from the browser (054) — ${RUN_ID} =="
 STATUS=$(curl -s -o /dev/null -w "%{http_code}" -b "$JAR" -X POST http://localhost:3000/api/runs \

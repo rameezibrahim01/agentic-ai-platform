@@ -49,8 +49,10 @@ audit table, with your name on it.
 
 ## 3. Promote it to prod
 
-On the agent's page you'll see its **dev** pointer. Use the **promote to
-prod** control to point prod at `walkthrough-agent@v1`.
+On the agent's page you'll see two environment rows: **dev** already points
+at your new version (a brand-new agent starts life in dev — that's why
+"promote to dev" would have nothing to do), and **prod** says *no pointer
+yet*. On the **prod** row, press **promote to prod**.
 
 **What just happened:** environments are pointers at versions. Promotion
 moves the pointer; rollback moves it back — one click, no rebuild, because
