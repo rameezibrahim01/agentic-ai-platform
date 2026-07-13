@@ -23,6 +23,7 @@ declare -a NAMES=(
   "phase 4 / drill 2 — key revocation (artifact)"
   "phase 4 / drill 4 — onboarding (reference form; script drill-p4-3)"
   "phase 4 / drill 5 — helm render (chart floor; script drill-p4-4)"
+  "phase 5 / drill 1 — authoring walkthrough (browser path; script drill-p5-1)"
 )
 declare -a SCRIPTS=(
   "drill-1-kill.sh"
@@ -41,6 +42,7 @@ declare -a SCRIPTS=(
   "drill-p4-2-key-revocation.sh"
   "drill-p4-3-onboarding.sh"
   "drill-p4-4-helm-render.sh"
+  "drill-p5-1-authoring.sh"
 )
 
 declare -a RESULTS=()
