@@ -1,0 +1,65 @@
+# Read-only viewer + the approval/ops surfaces. Never the Postgres superuser:
+# it shares the same client-provided connection secret as the worker in this
+# floor; clients that split roles point urlSecretName at a read-mostly role.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "platform.name" . }}-console
+  labels:
+    app.kubernetes.io/component: console
+    {{- include "platform.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.console.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: console
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: console
+        {{- include "platform.labels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: console
+          image: {{ include "platform.image" (dict "registry" .Values.image.registry "name" .Values.image.console "tag" .Values.image.tag) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: 3000
+          env:
+            {{- include "platform.commonEnv" . | nindent 12 }}
+            {{- include "platform.secretEnv" (dict "env" "AUTH_SESSION_SECRET" "ref" .Values.secrets.authSessionSecret) | nindent 12 }}
+            {{- if .Values.oidc }}
+            - name: OIDC_CONFIG
+              value: /etc/platform/oidc.config.json
+            {{- include "platform.secretEnv" (dict "env" "OIDC_CLIENT_SECRET" "ref" .Values.oidc.clientSecret) | nindent 12 }}
+            {{- end }}
+            {{- if .Values.scim.tokenSecret.name }}
+            - name: SCIM_TOKEN_ENV
+              value: SCIM_TOKEN
+            {{- include "platform.secretEnv" (dict "env" "SCIM_TOKEN" "ref" .Values.scim.tokenSecret) | nindent 12 }}
+            {{- end }}
+          volumeMounts:
+            - name: platform-config
+              mountPath: /etc/platform
+              readOnly: true
+      volumes:
+        - name: platform-config
+          configMap:
+            name: {{ include "platform.name" . }}-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "platform.name" . }}-console
+  labels:
+    app.kubernetes.io/component: console
+    {{- include "platform.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.console.service.type }}
+  selector:
+    app.kubernetes.io/component: console
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - port: {{ .Values.console.service.port }}
+      targetPort: 3000

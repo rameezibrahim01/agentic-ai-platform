@@ -1,0 +1,81 @@
+# Every knob the compose profile exposes, as values. Two invariants the
+# render drill enforces: (1) secrets are secretKeyRef NAMES only — material
+# never appears in values or manifests; (2) config file paths inside the
+# containers are byte-identical to the compose profile (/etc/platform/*).
+
+image:
+  # private-registry prefix for air-gapped installs (see AIRGAP.md), e.g.
+  # "registry.client.internal:5000/". Empty = local images.
+  registry: ""
+  worker: agentic-platform-worker
+  console: agentic-platform-console
+  tag: latest
+  pullPolicy: IfNotPresent
+
+# policy environment for the whole install (compose: PLATFORM_ENV)
+platformEnv: prod
+
+# client-provided Temporal (self-hosted or Temporal Cloud on-prem)
+temporal:
+  address: temporal-frontend.temporal.svc:7233
+  namespace: default
+
+# client-provided Postgres: the Secret NAME + key holding the full
+# connection string (postgres://user:pw@host:5432/db)
+externalPostgres:
+  urlSecretName: platform-database
+  urlSecretKey: url
+
+# optional secretKeyRefs; empty name = the env var is simply not set.
+secrets:
+  # ANTHROPIC_API_KEY (ticket 026)
+  anthropicApiKey: { name: "", key: "" }
+  # PLATFORM_DATA_KEY (ticket 035, untenanted encryption)
+  platformDataKey: { name: "", key: "" }
+  # console AUTH_SESSION_SECRET (ticket 013)
+  authSessionSecret: { name: "", key: "" }
+  # arbitrary extra env-from-secret pairs — per-tenant data keys (036) and
+  # provider keys (046) go here, e.g.
+  #   extra:
+  #     - { env: ACME_DATA_KEY, name: acme-keys, key: data-key }
+  extra: []
+
+# SCIM provisioning (ticket 040): the bearer token's secretKeyRef. Empty
+# name = SCIM off. When set, the console gets SCIM_TOKEN_ENV=SCIM_TOKEN and
+# SCIM_TOKEN from this ref.
+scim:
+  tokenSecret: { name: "", key: "" }
+
+# platform config FILES (tickets 021/028/033/036), rendered into a ConfigMap
+# and mounted at the same paths compose uses. ConfigMap mounts are read-only
+# in k8s: the 047 web flip does not apply here — flip switches via
+# kubectl edit / GitOps, which IS the k8s-native audited write path.
+configs:
+  tools:
+    tools: []
+    grants: []
+    egressAllowlist: []
+  agents:
+    agents: []
+    environments: {}
+  limits:
+    killSwitches:
+      global: false
+      agents: {}
+  # null = untenanted install; an object = TENANTS_CONFIG is set and every
+  # tenant's dataKeyEnv must appear in secrets.extra
+  tenants: null
+
+# OIDC SSO (ticket 034): null = local accounts only. config is the OIDC_CONFIG
+# document (clientSecretEnv should name OIDC_CLIENT_SECRET); clientSecret is
+# the secretKeyRef backing that env var.
+oidc: null
+
+console:
+  service:
+    type: ClusterIP
+    port: 3000
+  replicas: 1
+
+worker:
+  replicas: 1

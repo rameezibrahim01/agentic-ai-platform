@@ -15,6 +15,7 @@ human-owned below.
 | 2 | Key revocation | `drill-p4-2-key-revocation.sh` | CI ✅ |
 | 3 | SIEM test | customer's security team ingests + answers the auditor's question from THEIR tooling | **OPEN** (human) |
 | 4 | Onboarding test | reference form: `drill-p4-3-onboarding.sh`; SSO/SCIM + real customer half | CI ✅ / **OPEN** (human) |
+| 5 | Helm chart (k8s profile) | render floor: `drill-p4-4-helm-render.sh`; real `helm install` half | CI ✅ / **OPEN** (human) |
 
 ## Drill 1 — the audit export
 
@@ -80,9 +81,25 @@ customer's real IdP, and a REAL second customer going contract → first
 governed run with zero vendor-side manual steps beyond config. Recorded
 OPEN below until it happens.
 
+## Drill 5 — the Helm chart, render floor (ticket 049)
+
+**What runs (CI):** `helm lint` clean; `helm template` renders the default
+(untenanted) values AND a tenanted+SCIM values file; the rendered manifests
+are checked for the invariants that matter — secrets appear ONLY as
+secretKeyRef names (a material-shaped string fails the drill), config mounts
+sit at the exact compose paths, the untenanted default carries no
+TENANTS_CONFIG, an unset optional secret renders no env var at all, and the
+strict values schema refuses a typo'd key instead of deploying it.
+Postgres/Temporal are client-provided endpoints by design; offline installs
+are documented in `deploy/helm/AIRGAP.md`.
+
+**What stays human:** the real `helm install` against a client cluster (a
+kind-cluster CI install is a follow-up when CI minutes allow).
+
 ## Human-owned rows
 
 | Drill | Owner | Status |
 |-------|-------|--------|
 | 3 — SIEM ingestion confirmed by the customer's security team | customer | **OPEN** |
 | 4 — onboarding test, real form (SSO/SCIM, a real second customer) | owner + customer | **OPEN** (reference form CI ✅) |
+| 5 — `helm install` on a client cluster (kind-cluster CI install is a follow-up) | owner + client infra | **OPEN** (render floor CI ✅) |

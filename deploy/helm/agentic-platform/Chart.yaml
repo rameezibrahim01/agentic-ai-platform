@@ -1,0 +1,11 @@
+apiVersion: v2
+name: agentic-platform
+description: >-
+  Enterprise agentic platform — durable governed agent runs on the client's
+  Kubernetes. Postgres and Temporal are client-provided endpoints (CLAUDE.md
+  rule 8: every runtime dependency is open-source, self-hostable, or
+  client-provided). Secrets ride as secretKeyRef NAMES only; this chart never
+  carries material.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

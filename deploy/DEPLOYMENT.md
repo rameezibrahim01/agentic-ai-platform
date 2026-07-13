@@ -7,8 +7,11 @@ One codebase, two profiles:
 `docker compose --env-file ../.env up` brings up Postgres + self-hosted Temporal (+ UI).
 Worker/console services are commented until their Dockerfiles land (ticket 003 onward).
 
-**2. Helm profile (production client sites)** — added at the Phase 1 exit; installs the entire
-platform (control + data plane) on the client's Kubernetes.
+**2. Helm profile (production client sites)** — `deploy/helm/agentic-platform` (ticket 049):
+worker + console on the client's Kubernetes against client-provided Postgres/Temporal
+endpoints; every compose config knob maps to values, secrets ride as secretKeyRef NAMES
+only, and CI verifies the chart by rendering (`drill-p4-4-helm-render.sh`). Offline
+installs: `deploy/helm/AIRGAP.md`.
 
 ## The shippable-dependency rule
 Every runtime dependency is open-source, self-hostable, or client-provided:

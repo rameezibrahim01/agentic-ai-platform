@@ -1,0 +1,24 @@
+# Platform config FILES from values — the same documents compose mounts,
+# at the same paths. Read-only by k8s design: switch flips here are kubectl
+# edits / GitOps commits, which is the k8s-native audited write path.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "platform.name" . }}-config
+  labels:
+    {{- include "platform.labels" . | nindent 4 }}
+data:
+  tools.config.json: |
+    {{ .Values.configs.tools | toJson }}
+  agents.config.json: |
+    {{ .Values.configs.agents | toJson }}
+  limits.config.json: |
+    {{ .Values.configs.limits | toJson }}
+{{- if .Values.configs.tenants }}
+  tenants.config.json: |
+    {{ .Values.configs.tenants | toJson }}
+{{- end }}
+{{- if .Values.oidc }}
+  oidc.config.json: |
+    {{ .Values.oidc.config | toJson }}
+{{- end }}
