@@ -6,7 +6,7 @@ import { Worker } from "@temporalio/worker";
 import { replay, type RunEventType } from "@platform/core";
 import type { InMemoryEventStore } from "@platform/storage";
 import { fakeIntent, fakeMessage } from "@platform/model-gateway";
-import { sendApprovalDecision, startAgentRun } from "../src/client.js";
+import { sendApprovalDecision, sendApprovalDelegation, startAgentRun } from "../src/client.js";
 import { makeWorld, runInput } from "./helpers.js";
 
 const workflowsPath = fileURLToPath(new URL("../src/workflows.ts", import.meta.url));

@@ -71,6 +71,9 @@ services:
       # per-tenant data keys (036): names must match dataKeyEnv in the tenants file
       ACME_DATA_KEY: ${ACME_DATA_KEY:-}
       GLOBEX_DATA_KEY: ${GLOBEX_DATA_KEY:-}
+      # approval notifications (ticket 051): empty = off
+      NOTIFICATIONS_CONFIG: ${NOTIFICATIONS_CONFIG:-}
+      APPROVALS_WEBHOOK_URL: ${APPROVALS_WEBHOOK_URL:-}
     volumes:
       - "./tools.config.json:/etc/platform/tools.config.json:ro"
       - "./agents.config.json:/etc/platform/agents.config.json:ro"
