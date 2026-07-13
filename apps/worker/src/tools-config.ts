@@ -5,6 +5,7 @@ import { refKey, ToolRegistry } from "@platform/tool-registry";
 import type { AgentGrants } from "@platform/tool-registry";
 import type { ToolExecutor } from "@platform/tool-gateway";
 import { notesAppendContract, notesAppendExecutor } from "./tools/notes.js";
+import { sqlQueryContract, sqlQueryExecutor } from "./tools/sql.js";
 import { McpStdioClient } from "./mcp/client.js";
 import { wrapMcpTool } from "./mcp/wrap.js";
 import { generateOpenApiTool } from "./openapi/generate.js";
@@ -82,6 +83,9 @@ export const toolsConfigSchema = z
     egressAllowlist: z.array(z.string()).default([]),
     mcpServers: z.array(mcpServerConfigSchema).default([]),
     openapiTools: z.array(openapiToolsConfigSchema).default([]),
+    /** Ticket 045: required when tools includes sql.query@v1. The env var
+     * NAME holding the read-only connection string — never the string. */
+    sqlTools: z.object({ connectionEnv: z.string().min(1) }).strict().optional(),
   })
   .strict();
 
@@ -92,6 +96,8 @@ export interface CatalogDeps {
   notesFile?: string;
   /** Injectable transport for generated OpenAPI tools (tests never hit the network). */
   fetchFn?: typeof fetch;
+  /** Injectable env for tests (sql.query@v1's connectionEnv). Default process.env. */
+  env?: Readonly<Record<string, string | undefined>>;
 }
 
 interface CatalogEntry {
@@ -154,6 +160,24 @@ export async function buildTools(
   };
 
   for (const ref of config.tools) {
+    // sql.query@v1 (ticket 045): needs its config section, not just deps —
+    // the connection comes from the env var the config NAMES
+    if (ref === refKey(sqlQueryContract)) {
+      if (config.sqlTools === undefined) {
+        return failBoot("sql.query@v1 requires the sqlTools.connectionEnv config");
+      }
+      const env = deps.env ?? process.env;
+      const connection = env[config.sqlTools.connectionEnv];
+      if (!connection) {
+        return failBoot(
+          `sql.query@v1: connection env ${config.sqlTools.connectionEnv} is named but empty`,
+        );
+      }
+      registry.register(sqlQueryContract);
+      executors.push(sqlQueryExecutor(connection));
+      enabled.add(ref);
+      continue;
+    }
     const entry = CATALOG[ref];
     if (entry === undefined) {
       return failBoot(`unknown tool ${ref} — not in this worker's catalog`);
