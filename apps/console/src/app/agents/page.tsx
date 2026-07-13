@@ -43,6 +43,7 @@ export default async function AgentsPage() {
               <th style={cell}>model</th>
               <th style={cell}>tools</th>
               <th style={cell}>environment pointers</th>
+              <th style={cell}>launch</th>
             </tr>
           </thead>
           <tbody>
@@ -68,6 +69,11 @@ export default async function AgentsPage() {
                     {row.aliased
                       ? row.envs.map(([env, pointer]) => `${env} → ${pointer.current}`).join(" · ")
                       : "no alias — reachable only as a direct name@vN reference"}
+                  </td>
+                  <td style={cell}>
+                    {row.aliased ? (
+                      <Link href={`/agents/${encodeURIComponent(row.name)}/run`}>run</Link>
+                    ) : null}
                   </td>
                 </tr>
               );

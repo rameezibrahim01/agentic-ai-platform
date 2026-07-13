@@ -10,7 +10,12 @@ export const ROLES = [
 
 export type Role = (typeof ROLES)[number];
 
-export type Action = "view_runs" | "manage_platform" | "approve_intents" | "author_agents";
+export type Action =
+  | "view_runs"
+  | "manage_platform"
+  | "approve_intents"
+  | "author_agents"
+  | "start_runs";
 
 const PERMISSIONS: Record<Action, readonly Role[]> = {
   view_runs: ROLES,
@@ -18,6 +23,8 @@ const PERMISSIONS: Record<Action, readonly Role[]> = {
   approve_intents: ["approver", "platform_admin"],
   // ticket 053: agent_developer's first teeth — create immutable versions
   author_agents: ["agent_developer", "platform_admin"],
+  // ticket 054: launch a run from the console
+  start_runs: ["agent_developer", "platform_admin"],
 };
 
 /** Deny by default: unknown actions (runtime strings) are never permitted. */

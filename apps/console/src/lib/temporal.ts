@@ -54,12 +54,14 @@ export async function signalApprovalDelegation(
 export async function startAgentRunByName(
   workflowId: string,
   input: Record<string, unknown>,
+  options?: { taskQueue?: string },
 ): Promise<"started" | "duplicate"> {
   const client = await getClient();
   try {
     await client.workflow.start("agentRun", {
       workflowId,
-      taskQueue: process.env["TEMPORAL_TASK_QUEUE"] ?? "agent-runs",
+      // ticket 054: tenanted launches name their lane's queue explicitly
+      taskQueue: options?.taskQueue ?? process.env["TEMPORAL_TASK_QUEUE"] ?? "agent-runs",
       args: [input],
     });
     return "started";
