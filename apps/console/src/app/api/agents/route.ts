@@ -2,8 +2,9 @@ import { readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { NextResponse, type NextRequest } from "next/server";
 import { currentSession } from "../../../lib/auth";
-import { getOpsAudit } from "../../../lib/ops-audit";
 import { handleAgentCreate } from "../../../lib/builder";
+import { errorRedirectPath, wantsHtml } from "../../../lib/http";
+import { getOpsAudit } from "../../../lib/ops-audit";
 
 // Create an immutable agent version (ticket 053). Every decision lives in
 // lib/builder.ts (handleAgentCreate, pure over injected deps); this adapter
@@ -27,12 +28,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   if (session === null) {
     return NextResponse.redirect(new URL("/login", request.url), 303);
   }
+  // a browser form post lands back on the builder with the message rendered;
+  // programmatic callers keep JSON + the status code (issue #105)
+  const refuse = (status: number, error: string): NextResponse =>
+    wantsHtml(request.headers.get("accept"))
+      ? NextResponse.redirect(new URL(errorRedirectPath("/agents/new", error), request.url), 303)
+      : NextResponse.json({ error }, { status });
+
   const audit = getOpsAudit();
   if (audit === null) {
-    return NextResponse.json(
-      { error: "creating agent versions requires the audit store — set DATABASE_URL" },
-      { status: 409 },
-    );
+    return refuse(409, "creating agent versions requires the audit store — set DATABASE_URL");
   }
 
   const form = await request.formData();
@@ -84,13 +89,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     draft,
   );
 
-  // browser form → land on the agent's page; errors render as JSON with the
-  // reason (the form's server-side contract, same as the flip route)
   if (result.status === 200) {
     return NextResponse.redirect(
       new URL(`/agents/${encodeURIComponent(String(result.body["name"]))}`, request.url),
       303,
     );
   }
-  return NextResponse.json(result.body, { status: result.status });
+  return refuse(result.status, String(result.body["error"] ?? "create failed"));
 }

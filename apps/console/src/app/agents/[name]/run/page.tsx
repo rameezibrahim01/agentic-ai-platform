@@ -14,11 +14,14 @@ export const dynamic = "force-dynamic";
 
 export default async function RunAgentPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ name: string }>;
+  searchParams: Promise<{ error?: string }>;
 }) {
   const session = await requireSession();
   const { name: encoded } = await params;
+  const { error } = await searchParams;
   const name = decodeURIComponent(encoded);
   const env = process.env["PLATFORM_ENV"] ?? "prod";
   const registry = await readAgentsConfig(process.env, (path) => readFile(path, "utf8"));
@@ -74,6 +77,11 @@ export default async function RunAgentPage({
         run {name} · <Link href={`/agents/${encodeURIComponent(name)}`}>agent page</Link> ·{" "}
         <Link href="/runs">runs</Link>
       </h2>
+      {error ? (
+        <p style={{ color: "#b00" }}>
+          that run didn’t start: <b>{error}</b>
+        </p>
+      ) : null}
       <p>
         this will start <b>{id}</b> (the {env} pointer) as <b>{session.principal}</b> — model{" "}
         {spec.model}, budget {spec.budget ? JSON.stringify(spec.budget) : "engine default"}.

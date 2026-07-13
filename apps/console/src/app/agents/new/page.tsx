@@ -16,10 +16,10 @@ const RISKS = ["read", "write", "irreversible", "financial"] as const;
 export default async function NewAgentPage({
   searchParams,
 }: {
-  searchParams: Promise<{ from?: string }>;
+  searchParams: Promise<{ from?: string; error?: string }>;
 }) {
   const session = await requireSession();
-  const { from } = await searchParams;
+  const { from, error } = await searchParams;
   const read = (path: string) => readFile(path, "utf8");
   const [models, tools, registry] = await Promise.all([
     readModelOptions(process.env, read),
@@ -55,6 +55,11 @@ export default async function NewAgentPage({
       <h2 style={{ fontSize: 16 }}>
         {source ? `new version of ${from}` : "new agent"} · <Link href="/agents">all agents</Link>
       </h2>
+      {error ? (
+        <p style={{ color: "#b00" }}>
+          that didn’t save: <b>{error}</b>
+        </p>
+      ) : null}
       <p>
         Saving creates an <b>immutable</b> version (name@vN) — improving it later means saving
         again, never editing. A brand-new name starts with its <b>dev</b> pointer only; prod is a

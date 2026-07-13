@@ -3,11 +3,14 @@ import {
   agentCatalog,
   baseName,
   catalogRowFor,
+  envRows,
   parseAgentsConfig,
   pointerRefs,
+  promotableTo,
   readAgentsConfig,
   versionNumber,
 } from "../src/lib/agents";
+import { errorRedirectPath, wantsHtml } from "../src/lib/http";
 
 // Ticket 052: the registry read surface. Pure viewmodels over the same file
 // the run starters resolve aliases from — read fresh per request, and a
@@ -117,6 +120,49 @@ describe("agents read surface (ticket 052)", () => {
     });
     const second = await readAgentsConfig(env, read);
     expect(second.ok && second.config.versions).toHaveLength(4);
+  });
+});
+
+describe("authoring papercuts (issue #105)", () => {
+  it("envRows always offers dev AND prod — a fresh agent can be promoted to prod before prod exists", () => {
+    const fresh = parseAgentsConfig({
+      versions: [spec("fresh@v1")],
+      aliases: { fresh: { dev: { current: "fresh@v1" } } },
+    });
+    if (!fresh.ok) throw new Error(fresh.error);
+    const row = catalogRowFor(fresh.config, "fresh")!;
+    expect(envRows(row)).toEqual([
+      ["dev", { current: "fresh@v1" }],
+      ["prod", undefined],
+    ]);
+    // extra envs an operator invented survive, sorted in
+    const staged = catalogRowFor(readAgentsResult(CONFIG), "triage")!;
+    expect(envRows(staged).map(([env]) => env)).toEqual(["dev", "prod"]);
+  });
+
+  it("promotableTo never offers the current version — offering it is offering a refusal", () => {
+    const row = catalogRowFor(readAgentsResult(CONFIG), "triage")!;
+    expect(promotableTo(row.versions, { current: "triage@v2" }).map((v) => v.id)).toEqual([
+      "triage@v1",
+    ]);
+    // no pointer yet: everything is promotable
+    expect(promotableTo(row.versions, undefined).map((v) => v.id)).toEqual([
+      "triage@v2",
+      "triage@v1",
+    ]);
+    // sole version already live: nothing to offer
+    expect(promotableTo(row.versions.slice(0, 1), { current: "triage@v2" })).toEqual([]);
+  });
+
+  it("wantsHtml: browsers get pages, machines keep JSON", () => {
+    expect(wantsHtml("text/html,application/xhtml+xml,*/*;q=0.8")).toBe(true); // a browser
+    expect(wantsHtml("*/*")).toBe(false); // curl
+    expect(wantsHtml("application/json")).toBe(false);
+    expect(wantsHtml(null)).toBe(false);
+    expect(errorRedirectPath("/agents/x", "already there & more")).toBe(
+      "/agents/x?error=already%20there%20%26%20more",
+    );
+    expect(errorRedirectPath("/agents/new?from=x", "nope")).toBe("/agents/new?from=x&error=nope");
   });
 });
 
