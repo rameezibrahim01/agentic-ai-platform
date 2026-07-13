@@ -48,13 +48,19 @@ SCIM Groups, operator write actions.
 Read-only SQL tool (045, architecture §6's escape hatch), per-tenant provider API
 keys (046), kill-switch write path with ops audit (047), approval escalation (048).
 
-## Remaining seeds (expand when 045–048 are done)
-- **Helm/air-gap packaging** of the artifact (needs a k8s story).
-- **Delegation-to-a-person** for approvals (a person is a principal, not a group —
-  048's out-of-scope note) and **notification delivery** for escalations (the log is
-  the contract; routing needs a partner's channel).
-- **SQL tool schema allowlists / column masking** (045 note — when a partner asks);
-  connector SDK docs for third-party catalog tools.
+## Batch 049–051 (the last machine-checkable seeds) — EXPANDED into ticket files ✔
+Helm chart + air-gap docs, render-verified floor (049); delegation-to-a-person (050);
+approval notifications, webhook floor (051).
+
+## What remains after 049–051 — needs things only humans can provide
+- **Human-owned drill rows** (docs/drills/phase-{1..4}.md): design-partner usefulness
+  sign-off, invoice reconciliation, the partner's REAL write, external red-team review,
+  model-swap + economics reads, customer SIEM ingestion, real SSO/SCIM onboarding.
+- **A real cluster**: `helm install` against a client k8s (049 ships the render-verified
+  chart; a kind-cluster CI install is a type:design issue when CI minutes allow).
+- **A partner's requirements**: SQL schema allowlists/column masking (045 note),
+  per-tenant notification configs (051 note), connector SDK docs shaped by the first
+  third-party tool author.
 - **Phase 3 drills still OPEN in docs/drills/phase-3.md:** model-swap (needs a successor
   model + real key), economics test (human-read from /costs).
 - **Connector SDK docs** + scoped read-only SQL tool (architecture §6's remaining
