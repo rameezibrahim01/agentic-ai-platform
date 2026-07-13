@@ -13,6 +13,8 @@ import { fakeIntent, fakeMessage } from "@platform/model-gateway";
 import type { FakeBehavior } from "@platform/model-gateway";
 import { buildModelGateway } from "./model-config.js";
 import { makeLimitsLoader, makeTenantLimitsLoader } from "./limits.js";
+import { makeNotifier, NO_NOTIFIER } from "./notify.js";
+import type { Notifier } from "./notify.js";
 import { DEFAULT_RULES } from "@platform/policy";
 import { ToolRegistry } from "@platform/tool-registry";
 import { createToolGateway } from "@platform/tool-gateway";
@@ -64,6 +66,17 @@ export async function runWorker(): Promise<void> {
     env: platformEnv,
   });
 
+  // Approval notifications (ticket 051): validated at boot, shared by every
+  // lane in this slice; no config = no notifications, byte-identical.
+  let notify: Notifier = NO_NOTIFIER;
+  const notificationsPath = process.env["NOTIFICATIONS_CONFIG"];
+  if (notificationsPath) {
+    const made = makeNotifier(JSON.parse(await readFile(notificationsPath, "utf8")));
+    if (!made.ok) throw new Error(`worker: ${made.error}`);
+    notify = made.notifier;
+    console.log(`worker: ${made.summary}`);
+  }
+
   // Tenanted deployment (ticket 037): TENANTS_CONFIG turns the process into
   // one lane per tenant — own queue, own store, own key, own limits. There is
   // no untenanted lane in tenanted mode: every run belongs to a tenant.
@@ -82,6 +95,7 @@ export async function runWorker(): Promise<void> {
       platformEnv,
       gateway,
       tools,
+      notify,
     });
     return;
   }
@@ -121,7 +135,7 @@ export async function runWorker(): Promise<void> {
       namespace,
       taskQueue: TASK_QUEUE,
       workflowsPath,
-      activities: createActivities({ store, gateway, tools, limits: { load: loadLimits } }),
+      activities: createActivities({ store, gateway, tools, limits: { load: loadLimits }, notify }),
     });
     await worker.run();
   } finally {
@@ -146,6 +160,7 @@ async function runTenantWorkers(options: {
   platformEnv: string;
   gateway: ModelGateway;
   tools: ToolGateway;
+  notify: Notifier;
 }): Promise<void> {
   const parsed = parseTenantsConfig(
     JSON.parse(await readFile(options.tenantsConfigPath, "utf8")) as unknown,
@@ -220,6 +235,7 @@ async function runTenantWorkers(options: {
               gateway: laneGateway,
               tools: laneTools,
               limits: { load },
+              notify: options.notify,
             }),
           }),
         );

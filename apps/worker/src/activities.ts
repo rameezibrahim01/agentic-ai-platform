@@ -8,6 +8,8 @@ import type { LimitsConfig } from "./limits.js";
 import type { ModelGateway, Usage } from "@platform/model-gateway";
 import type { ToolGateway } from "@platform/tool-gateway";
 import { emitRunTrace } from "@platform/telemetry";
+import { NO_NOTIFIER } from "./notify.js";
+import type { Notifier } from "./notify.js";
 import { idempotentAppend } from "./append.js";
 
 // Activities own all I/O and timestamps (determinism rule from ticket 003).
@@ -33,6 +35,9 @@ export interface WorkerDeps {
   };
   /** Optional (ticket 033): operator limits, re-read per check so flips are instant. */
   limits?: { load: () => Promise<LimitsConfig> };
+  /** Optional (ticket 051): best-effort webhook pings on approval events —
+   * never awaited into a run's outcome, never fired on deduped retries. */
+  notify?: Notifier;
 }
 
 export interface StartRunRequest {
@@ -84,6 +89,7 @@ export interface RecordEscalationRequest {
   runId: string;
   expectedVersion: number;
   toGroup: string;
+  agent: string;
 }
 
 export interface RecordDelegationRequest {
@@ -91,6 +97,7 @@ export interface RecordDelegationRequest {
   expectedVersion: number;
   toPrincipal: string;
   by: string;
+  agent: string;
 }
 
 export interface ApprovalDecisionRequest {
@@ -156,7 +163,7 @@ export function parseToolId(tool: string): { name: string; version: string } {
   return { name: tool.slice(0, at), version: tool.slice(at + 1) };
 }
 
-export function createActivities({ store, gateway, tools, tracer, grants, limits }: WorkerDeps) {
+export function createActivities({ store, gateway, tools, tracer, grants, limits, notify = NO_NOTIFIER }: WorkerDeps) {
   // One trace per run, emitted once when the run reaches a terminal event
   // (deduped retries do not re-emit).
   async function emitTerminalTrace(runId: string): Promise<void> {
@@ -280,9 +287,17 @@ export function createActivities({ store, gateway, tools, tracer, grants, limits
           },
         ];
         const result = await idempotentAppend(store, runId, expectedVersion, events);
-        return result.ok
-          ? { kind: "approval_required", version: result.version, expiresAt }
-          : fail(result.error);
+        if (!result.ok) fail(result.error);
+        if (!result.deduped) {
+          notify({
+            event: "approval_requested",
+            runId,
+            agent: request.agent,
+            approverGroup: request.approverGroup,
+            expiresAt,
+          });
+        }
+        return { kind: "approval_required", version: result.version, expiresAt };
       }
 
       // refused — the attempt is audited. Pre/at-policy refusals carry a deny
@@ -340,7 +355,16 @@ export function createActivities({ store, gateway, tools, tracer, grants, limits
         toGroup: request.toGroup,
       };
       const result = await idempotentAppend(store, request.runId, request.expectedVersion, [event]);
-      return result.ok ? { version: result.version } : fail(result.error);
+      if (!result.ok) fail(result.error);
+      if (!result.deduped) {
+        notify({
+          event: "approval_escalated",
+          runId: request.runId,
+          agent: request.agent,
+          toGroup: request.toGroup,
+        });
+      }
+      return { version: result.version };
     },
 
     /** Ticket 050: the handoff to a named person becomes a FACT in the log. */
@@ -354,7 +378,16 @@ export function createActivities({ store, gateway, tools, tracer, grants, limits
         by: request.by,
       };
       const result = await idempotentAppend(store, request.runId, request.expectedVersion, [event]);
-      return result.ok ? { version: result.version } : fail(result.error);
+      if (!result.ok) fail(result.error);
+      if (!result.deduped) {
+        notify({
+          event: "approval_delegated",
+          runId: request.runId,
+          agent: request.agent,
+          toPrincipal: request.toPrincipal,
+        });
+      }
+      return { version: result.version };
     },
 
     async recordApprovalDecision(request: ApprovalDecisionRequest): Promise<{ version: number }> {

@@ -278,6 +278,7 @@ export async function agentRun(input: AgentRunInput): Promise<AgentRunResult> {
             expectedVersion: version,
             toPrincipal: delegation.toPrincipal,
             by: delegation.by,
+            agent: input.agent,
           });
           version = recorded.version;
           remaining -= Date.now() - legStart;
@@ -294,6 +295,7 @@ export async function agentRun(input: AgentRunInput): Promise<AgentRunResult> {
             runId,
             expectedVersion: version,
             toGroup: escalation.toGroup,
+            agent: input.agent,
           });
           version = escalated.version;
           signalled = await awaitDecision(approvalTtlMs - escalation.afterMs);

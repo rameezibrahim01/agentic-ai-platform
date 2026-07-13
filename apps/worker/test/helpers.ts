@@ -31,6 +31,8 @@ export function makeWorld(
     limitsPath?: string;
     /** Ticket 037: inject a limits loader directly (tenant fallback chains). */
     limitsLoader?: () => Promise<import("../src/limits.js").LimitsConfig>;
+    /** Ticket 051: capture webhook pings. */
+    notify?: import("../src/notify.js").Notifier;
   } = {},
 ) {
   const store = new InMemoryEventStore();
@@ -112,6 +114,7 @@ export function makeWorld(
       : opts.limitsPath
         ? { limits: { load: makeLimitsLoader(opts.limitsPath) } }
         : {}),
+    ...(opts.notify ? { notify: opts.notify } : {}),
     ...(opts.delegation
       ? {
           grants: {
