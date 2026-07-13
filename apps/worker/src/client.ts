@@ -1,6 +1,6 @@
 import type { Client, WorkflowHandle } from "@temporalio/client";
-import type { AgentRunInput, AgentRunResult, ApprovalDecision } from "./workflows.js";
-import { agentRun, approvalDecisionSignal } from "./workflows.js";
+import type { AgentRunInput, AgentRunResult, ApprovalDecision, ApprovalDelegation } from "./workflows.js";
+import { agentRun, approvalDecisionSignal, approvalDelegationSignal } from "./workflows.js";
 
 export const TASK_QUEUE = "agent-runs";
 
@@ -43,4 +43,16 @@ export async function sendApprovalDecision(
     .signal(approvalDecisionSignal, decision);
 }
 
-export type { AgentRunInput, AgentRunResult, ApprovalDecision };
+/** Hand the pending approval to a named person (ticket 050). */
+export async function sendApprovalDelegation(
+  client: Client,
+  runId: string,
+  delegation: ApprovalDelegation,
+  options?: { tenant?: string },
+): Promise<void> {
+  await client.workflow
+    .getHandle(workflowIdFor(runId, options?.tenant))
+    .signal(approvalDelegationSignal, delegation);
+}
+
+export type { AgentRunInput, AgentRunResult, ApprovalDecision, ApprovalDelegation };

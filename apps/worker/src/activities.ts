@@ -86,6 +86,13 @@ export interface RecordEscalationRequest {
   toGroup: string;
 }
 
+export interface RecordDelegationRequest {
+  runId: string;
+  expectedVersion: number;
+  toPrincipal: string;
+  by: string;
+}
+
 export interface ApprovalDecisionRequest {
   runId: string;
   expectedVersion: number;
@@ -331,6 +338,20 @@ export function createActivities({ store, gateway, tools, tracer, grants, limits
         seq: request.expectedVersion,
         at: Date.now(),
         toGroup: request.toGroup,
+      };
+      const result = await idempotentAppend(store, request.runId, request.expectedVersion, [event]);
+      return result.ok ? { version: result.version } : fail(result.error);
+    },
+
+    /** Ticket 050: the handoff to a named person becomes a FACT in the log. */
+    async recordDelegation(request: RecordDelegationRequest): Promise<{ version: number }> {
+      const event: RunEvent = {
+        type: "ApprovalDelegated",
+        runId: request.runId,
+        seq: request.expectedVersion,
+        at: Date.now(),
+        toPrincipal: request.toPrincipal,
+        by: request.by,
       };
       const result = await idempotentAppend(store, request.runId, request.expectedVersion, [event]);
       return result.ok ? { version: result.version } : fail(result.error);

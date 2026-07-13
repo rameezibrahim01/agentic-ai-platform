@@ -55,6 +55,8 @@ export function arbEventOfType(
         .map((p) => ({ type, ...base, ...p }));
     case "ApprovalEscalated":
       return fc.record({ at, toGroup: str }).map((p) => ({ type, ...base, ...p }));
+    case "ApprovalDelegated":
+      return fc.record({ at, toPrincipal: str, by: str }).map((p) => ({ type, ...base, ...p }));
     case "ApprovalGranted":
     case "ApprovalDenied":
       return fc.record({ at, by: str }).map((p) => ({ type, ...base, ...p }));
@@ -96,7 +98,7 @@ export function legalTypes(state: RunState | null): RunEventType[] {
   if (state.status === "completed" || state.status === "failed") return [];
   if (state.budgetExceeded !== null) return ["RunFailed"];
   if (state.status === "awaiting_approval") {
-    return ["ApprovalEscalated", "ApprovalGranted", "ApprovalDenied", "BudgetExceeded", "RunFailed"];
+    return ["ApprovalEscalated", "ApprovalDelegated", "ApprovalGranted", "ApprovalDenied", "BudgetExceeded", "RunFailed"];
   }
   const types: RunEventType[] = ["BudgetExceeded", "RunFailed"];
   if (state.pendingIntent === null) {
@@ -165,6 +167,7 @@ const ALL_TYPES: RunEventType[] = [
   "PolicyEvaluated",
   "ApprovalRequested",
   "ApprovalEscalated",
+  "ApprovalDelegated",
   "ApprovalGranted",
   "ApprovalDenied",
   "ToolExecuted",

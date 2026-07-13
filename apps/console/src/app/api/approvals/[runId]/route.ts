@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { can } from "@platform/auth";
 import { currentSession } from "../../../../lib/auth";
+import { delegatedToFromStore, mayDecide } from "../../../../lib/delegation";
 import { getStore, isTenanted } from "../../../../lib/store";
 import { decideApprovalSignal } from "../../../../lib/tenancy";
 import { signalApprovalDecision } from "../../../../lib/temporal";
@@ -18,14 +19,21 @@ export async function POST(
   if (session === null) {
     return NextResponse.redirect(new URL("/login", request.url), 303);
   }
-  if (!can(session.roles, "approve_intents")) {
-    return NextResponse.json(
-      { error: "forbidden: approve_intents requires the approver or platform_admin role" },
-      { status: 403 },
-    );
-  }
-
   const { runId } = await params;
+  // ticket 050: the named delegate may decide THIS run even without the
+  // approver role — computed from the log, never from the form
+  if (!can(session.roles, "approve_intents")) {
+    const delegatedTo = await delegatedToFromStore(
+      await getStore(session.tenant),
+      decodeURIComponent(runId),
+    );
+    if (!mayDecide(session, delegatedTo)) {
+      return NextResponse.json(
+        { error: "forbidden: deciding requires approve_intents or a delegation to you" },
+        { status: 403 },
+      );
+    }
+  }
   const form = await request.formData();
   const decision = String(form.get("decision") ?? "");
   if (decision !== "approve" && decision !== "deny") {

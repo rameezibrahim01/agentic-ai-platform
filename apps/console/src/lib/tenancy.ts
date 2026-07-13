@@ -111,3 +111,26 @@ export async function decideApprovalSignal(
   await deps.signal(workflowIdFor(params.runId, params.tenant), params.decision);
   return "signaled";
 }
+
+/**
+ * The same store-lookup gate for OTHER run signals (ticket 050's
+ * delegation): a session may signal only runs its tenant can see; the
+ * payload rides in the injected closure. Untenanted stays bare-runId.
+ */
+export async function gateTenantRunSignal(
+  deps: {
+    tenanted: boolean;
+    store: EventStore | null;
+    signal(workflowId: string): Promise<void>;
+  },
+  params: { runId: string; tenant: string | undefined },
+): Promise<ApprovalSignalResult> {
+  if (!deps.tenanted) {
+    await deps.signal(params.runId);
+    return "signaled";
+  }
+  if (deps.store === null) return "not_found";
+  if ((await deps.store.load(params.runId)) === null) return "not_found";
+  await deps.signal(workflowIdFor(params.runId, params.tenant));
+  return "signaled";
+}

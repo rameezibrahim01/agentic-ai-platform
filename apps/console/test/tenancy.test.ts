@@ -142,3 +142,51 @@ describe("approval gating (ticket 038)", () => {
     expect(signals).toEqual(["run-x"]);
   });
 });
+
+describe("delegation gating + mayDecide (ticket 050)", () => {
+  it("gateTenantRunSignal: A's session cannot delegate B's runId — not_found, NO signal", async () => {
+    const { gateTenantRunSignal } = await import("../src/lib/tenancy");
+    const storeA = await seeded("run-a");
+    const signals: string[] = [];
+    const deps = {
+      tenanted: true,
+      store: storeA as import("@platform/storage").EventStore | null,
+      signal: async (workflowId: string) => {
+        signals.push(workflowId);
+      },
+    };
+    expect(await gateTenantRunSignal(deps, { runId: "run-b", tenant: "acme" })).toBe("not_found");
+    expect(signals).toEqual([]); // the no-signal pin
+    expect(await gateTenantRunSignal(deps, { runId: "run-a", tenant: "acme" })).toBe("signaled");
+    expect(signals).toEqual(["acme--run-a"]);
+  });
+
+  it("mayDecide: approvers yes; the named delegate yes on THEIR run only; viewers no", async () => {
+    const { mayDecide } = await import("../src/lib/delegation");
+    const approver = { roles: ["approver" as const], principal: "user:appr" };
+    const delegate = { roles: ["viewer" as const], principal: "user:omar" };
+    expect(mayDecide(approver, undefined)).toBe(true);
+    expect(mayDecide(approver, "user:someone-else")).toBe(true);
+    expect(mayDecide(delegate, "user:omar")).toBe(true); // exactly their run
+    expect(mayDecide(delegate, "user:other")).toBe(false);
+    expect(mayDecide(delegate, undefined)).toBe(false);
+  });
+
+  it("delegatedToFromStore computes from the log alone", async () => {
+    const { delegatedToFromStore } = await import("../src/lib/delegation");
+    const { InMemoryEventStore } = await import("@platform/storage");
+    const store = new InMemoryEventStore();
+    const base = (seq: number, at: number) => ({ runId: "run-d", seq, at });
+    await store.append("run-d", 0, [
+      { type: "RunStarted", ...base(0, 1), agent: "a@v1", principal: "u", input: {} },
+      { type: "ModelCalled", ...base(1, 2), gatewayReqId: "g", model: "m", tokensIn: 1, tokensOut: 1, costUsd: 0 },
+      { type: "ToolIntentEmitted", ...base(2, 3), tool: "t.write", args: {}, risk: "write" },
+      { type: "PolicyEvaluated", ...base(3, 4), decision: "require_approval", rule: "r" },
+      { type: "ApprovalRequested", ...base(4, 5), approverGroup: "approvers", expiresAt: 9e12 },
+      { type: "ApprovalDelegated", ...base(5, 6), toPrincipal: "user:omar", by: "user:lead" },
+    ] as never);
+    expect(await delegatedToFromStore(store, "run-d")).toBe("user:omar");
+    expect(await delegatedToFromStore(store, "ghost")).toBeUndefined();
+    expect(await delegatedToFromStore(null, "run-d")).toBeUndefined();
+  });
+});
