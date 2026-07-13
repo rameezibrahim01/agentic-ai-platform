@@ -53,6 +53,11 @@ export function workflowIdFor(runId: string, tenant?: string): string {
   return tenant === undefined ? runId : `${tenant}--${runId}`;
 }
 
+/** Tenanted lanes poll their own queue (ticket 037's taskQueueFor). */
+export function taskQueueFor(tenant?: string): string {
+  return tenant === undefined ? "agent-runs" : `agent-runs--${tenant}`;
+}
+
 export interface StoreSelectionDeps {
   tenanted: boolean;
   /** The untenanted deployment's store — today's behavior, byte-identical. */

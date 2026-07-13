@@ -90,6 +90,9 @@ services:
       DATABASE_URL: postgres://platform:${POSTGRES_PASSWORD:?set in .env}@postgres:5432/platform
       # inbox decisions reach the engine (ticket 021)
       TEMPORAL_ADDRESS: temporal:7233
+      # run launcher (ticket 054): alias resolution must match the engine's
+      # policy environment — same default as the worker above
+      PLATFORM_ENV: ${PLATFORM_ENV:-prod}
       # read-only limits surface (ticket 033)
       LIMITS_CONFIG: /etc/platform/limits.config.json
       # agent registry pages (ticket 052): the console reads the same file
