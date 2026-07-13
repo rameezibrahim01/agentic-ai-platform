@@ -99,7 +99,9 @@ services:
       # use AUTH_ACCOUNTS_FILE or OIDC tenant mapping instead)
       AUTH_DEV_TENANT: ${AUTH_DEV_TENANT:-}
     volumes:
-      - "./limits.config.json:/etc/platform/limits.config.json:ro"
+      # rw (ticket 047): the console's ONE write action — audited switch
+      # flips — edits this file; the worker keeps its read-only mount
+      - "./limits.config.json:/etc/platform/limits.config.json:rw"
       - "./tenants.config.json:/etc/platform/tenants.config.json:ro"
     ports: [ "3000:3000" ]
 

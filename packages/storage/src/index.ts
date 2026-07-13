@@ -17,6 +17,8 @@ export { InMemoryScoreStore, PostgresScoreStore, runScoreSchema } from "./scores
 export type { RecordScoreResult, RunScore, ScoreStore } from "./scores.js";
 export { InMemoryAccountStore, PostgresAccountStore } from "./accounts.js";
 export type { AccountRecord, AccountStore, UpsertAccountResult } from "./accounts.js";
+export { InMemoryOpsAuditStore, PostgresOpsAuditStore } from "./ops-audit.js";
+export type { OpsAuditRecord, OpsAuditStore } from "./ops-audit.js";
 export { applyRetention, InMemoryHoldStore, PostgresHoldStore } from "./retention.js";
 export type {
   HoldResult,
