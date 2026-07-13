@@ -17,8 +17,9 @@ export default async function AgentsPage() {
   return (
     <main>
       <h2 style={{ fontSize: 16 }}>
-        agents · <Link href="/runs">runs</Link> · <Link href="/approvals">approval inbox</Link> ·{" "}
-        <Link href="/costs">costs</Link> · <Link href="/limits">limits</Link>
+        agents · <Link href="/agents/new">create agent</Link> · <Link href="/runs">runs</Link> ·{" "}
+        <Link href="/approvals">approval inbox</Link> · <Link href="/costs">costs</Link> ·{" "}
+        <Link href="/limits">limits</Link>
       </h2>
       {!result.ok ? (
         result.kind === "not-configured" ? (

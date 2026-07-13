@@ -95,6 +95,10 @@ services:
       # agent registry pages (ticket 052): the console reads the same file
       # the run starters resolve aliases from, fresh per request
       AGENTS_CONFIG: /etc/platform/agents.config.json
+      # builder pickers (ticket 053): tool/model options for the form —
+      # read-only convenience; grants and allowlists stay worker-enforced
+      TOOLS_CONFIG: /etc/platform/tools.config.json
+      MODELS_CONFIG: ${MODELS_CONFIG:-}
       # same data key as the worker (ticket 035): empty = plaintext logs
       PLATFORM_DATA_KEY: ${PLATFORM_DATA_KEY:-}
       # tenanted mode (ticket 038): sessions bind to a tenant; views never cross
@@ -107,8 +111,11 @@ services:
     volumes:
       # rw (ticket 047): the console's ONE write action — audited switch
       # flips — edits this file; the worker keeps its read-only mount
+      # rw (ticket 053): the builder's one write — append an immutable
+      # version; the worker's run starters only ever read this file
       - "./limits.config.json:/etc/platform/limits.config.json:rw"
-      - "./agents.config.json:/etc/platform/agents.config.json:ro"
+      - "./agents.config.json:/etc/platform/agents.config.json:rw"
+      - "./tools.config.json:/etc/platform/tools.config.json:ro"
       - "./tenants.config.json:/etc/platform/tenants.config.json:ro"
     ports: [ "3000:3000" ]
 
