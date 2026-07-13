@@ -64,6 +64,11 @@ refuses to render rather than silently deploying a misconfiguration.
 - **Kill-switch flips in k8s** are `kubectl edit configmap` / GitOps commits
   (read-only ConfigMap mounts). The console's 047 web-flip path applies to
   the compose/bare-metal profile where the limits file is writable.
+- **Browser agent creates in k8s** (ticket 053) hit the same wall: the
+  agents registry rides the read-only ConfigMap, so the builder refuses
+  with instructions. New versions land via GitOps edits to
+  `configs.agents` in values; moving the registry to a writable volume is
+  a client-infra decision, not a chart default.
 - The real-cluster `helm install` is the human/infra half of this drill —
   CI verifies the chart by rendering (lint + template + invariant checks),
   recorded in `docs/drills/phase-4.md`.

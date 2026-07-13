@@ -31,6 +31,11 @@ spec:
             # agent registry pages (ticket 052): same file the worker resolves
             - name: AGENTS_CONFIG
               value: /etc/platform/agents.config.json
+            # builder pickers (ticket 053). NOTE: the configmap mount is
+            # read-only — browser creates refuse with instructions on k8s
+            # until the registry moves to a writable volume (see AIRGAP.md)
+            - name: TOOLS_CONFIG
+              value: /etc/platform/tools.config.json
             {{- include "platform.secretEnv" (dict "env" "AUTH_SESSION_SECRET" "ref" .Values.secrets.authSessionSecret) | nindent 12 }}
             {{- if .Values.oidc }}
             - name: OIDC_CONFIG

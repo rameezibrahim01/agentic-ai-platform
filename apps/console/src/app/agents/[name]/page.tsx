@@ -53,7 +53,9 @@ export default async function AgentDetailPage({
   return (
     <main>
       <h2 style={{ fontSize: 16 }}>
-        agent {row.name} · <Link href="/agents">all agents</Link> · <Link href="/runs">runs</Link>
+        agent {row.name} · <Link href="/agents">all agents</Link> ·{" "}
+        <Link href={`/agents/new?from=${encodeURIComponent(row.name)}`}>new version</Link> ·{" "}
+        <Link href="/runs">runs</Link>
       </h2>
       <p>
         {row.aliased
