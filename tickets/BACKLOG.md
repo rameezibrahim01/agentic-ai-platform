@@ -44,11 +44,17 @@ view (042), key rotation/re-encryption (043), run_scores retention parity (044).
 Deferred within the batch: per-tenant provider API keys (needs a secrets-mount design),
 SCIM Groups, operator write actions.
 
-## Remaining seeds (expand when 040–044 are done)
-- **Helm/air-gap packaging** of the artifact (needs a k8s story); web-click
-  kill-switch flipping (write-path auth design, 033 note); approval
-  escalation/delegation-to-a-person (025 note); per-tenant provider API keys
-  (041 note — secrets-mount design first).
+## Batch 045–048 (governed operations) — EXPANDED into ticket files (see tickets/045…048) ✔
+Read-only SQL tool (045, architecture §6's escape hatch), per-tenant provider API
+keys (046), kill-switch write path with ops audit (047), approval escalation (048).
+
+## Remaining seeds (expand when 045–048 are done)
+- **Helm/air-gap packaging** of the artifact (needs a k8s story).
+- **Delegation-to-a-person** for approvals (a person is a principal, not a group —
+  048's out-of-scope note) and **notification delivery** for escalations (the log is
+  the contract; routing needs a partner's channel).
+- **SQL tool schema allowlists / column masking** (045 note — when a partner asks);
+  connector SDK docs for third-party catalog tools.
 - **Phase 3 drills still OPEN in docs/drills/phase-3.md:** model-swap (needs a successor
   model + real key), economics test (human-read from /costs).
 - **Connector SDK docs** + scoped read-only SQL tool (architecture §6's remaining
