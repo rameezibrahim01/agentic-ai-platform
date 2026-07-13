@@ -26,6 +26,9 @@ importers:
       '@platform/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@platform/evals':
+        specifier: workspace:*
+        version: link:../../packages/evals
       '@platform/storage':
         specifier: workspace:*
         version: link:../../packages/storage

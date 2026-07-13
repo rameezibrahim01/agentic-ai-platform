@@ -35,7 +35,8 @@ export default async function RunsPage() {
         </form>
       </p>
       <h2 style={{ fontSize: 16 }}>
-        runs ({rows.length}) · <Link href="/approvals">approval inbox</Link>
+        runs ({rows.length}) · <Link href="/agents">agents</Link> ·{" "}
+        <Link href="/approvals">approval inbox</Link>
       </h2>
       <table style={{ borderCollapse: "collapse" }}>
         <thead>

@@ -28,6 +28,9 @@ spec:
             - containerPort: 3000
           env:
             {{- include "platform.commonEnv" . | nindent 12 }}
+            # agent registry pages (ticket 052): same file the worker resolves
+            - name: AGENTS_CONFIG
+              value: /etc/platform/agents.config.json
             {{- include "platform.secretEnv" (dict "env" "AUTH_SESSION_SECRET" "ref" .Values.secrets.authSessionSecret) | nindent 12 }}
             {{- if .Values.oidc }}
             - name: OIDC_CONFIG
