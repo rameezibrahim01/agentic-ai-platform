@@ -162,7 +162,15 @@ export default async function ApprovalsPage() {
               </td>
               <td style={cell}>{formatUtc(row.requestedAt)}</td>
               <td style={cell}>{formatUtc(row.expiresAt)}</td>
-              <td style={cell}>{SLA_LABEL[row.sla]}</td>
+              <td style={cell}>
+                {SLA_LABEL[row.sla]}
+                {row.escalatedTo !== undefined ? (
+                  <>
+                    {" "}
+                    · <b style={{ color: "#b06" }}>escalated to {row.escalatedTo}</b>
+                  </>
+                ) : null}
+              </td>
               {canApprove ? (
                 <td style={cell}>
                   <DecisionForm action={`/api/approvals/${encodeURIComponent(row.runId)}`} />

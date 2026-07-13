@@ -63,6 +63,16 @@ export const approvalRequestedSchema = z
   })
   .strict();
 
+export const approvalEscalatedSchema = z
+  .object({
+    ...eventBase,
+    type: z.literal("ApprovalEscalated"),
+    /** The fallback group now addressed. Escalation buys attention, never
+     * time — the original expiresAt stands (ticket 048). */
+    toGroup: z.string().min(1),
+  })
+  .strict();
+
 export const approvalGrantedSchema = z
   .object({
     ...eventBase,
@@ -145,6 +155,7 @@ export const runEventSchema = z.discriminatedUnion("type", [
   toolIntentEmittedSchema,
   policyEvaluatedSchema,
   approvalRequestedSchema,
+  approvalEscalatedSchema,
   approvalGrantedSchema,
   approvalDeniedSchema,
   toolExecutedSchema,
@@ -162,6 +173,7 @@ export type ModelCalled = z.infer<typeof modelCalledSchema>;
 export type ToolIntentEmitted = z.infer<typeof toolIntentEmittedSchema>;
 export type PolicyEvaluated = z.infer<typeof policyEvaluatedSchema>;
 export type ApprovalRequested = z.infer<typeof approvalRequestedSchema>;
+export type ApprovalEscalated = z.infer<typeof approvalEscalatedSchema>;
 export type ApprovalGranted = z.infer<typeof approvalGrantedSchema>;
 export type ApprovalDenied = z.infer<typeof approvalDeniedSchema>;
 export type ToolExecuted = z.infer<typeof toolExecutedSchema>;

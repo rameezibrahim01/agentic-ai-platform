@@ -80,6 +80,12 @@ export type ResolveIntentResponse =
   | { kind: "approval_required"; version: number; expiresAt: number }
   | { kind: "refused"; version: number; reason: string };
 
+export interface RecordEscalationRequest {
+  runId: string;
+  expectedVersion: number;
+  toGroup: string;
+}
+
 export interface ApprovalDecisionRequest {
   runId: string;
   expectedVersion: number;
@@ -315,6 +321,19 @@ export function createActivities({ store, gateway, tools, tracer, grants, limits
       return result.ok
         ? { ok: true, delegation: result.delegation, exercise: result.exercise }
         : { ok: false, reason: result.reason };
+    },
+
+    /** Ticket 048: silence at the escalation point becomes a FACT in the log. */
+    async recordEscalation(request: RecordEscalationRequest): Promise<{ version: number }> {
+      const event: RunEvent = {
+        type: "ApprovalEscalated",
+        runId: request.runId,
+        seq: request.expectedVersion,
+        at: Date.now(),
+        toGroup: request.toGroup,
+      };
+      const result = await idempotentAppend(store, request.runId, request.expectedVersion, [event]);
+      return result.ok ? { version: result.version } : fail(result.error);
     },
 
     async recordApprovalDecision(request: ApprovalDecisionRequest): Promise<{ version: number }> {

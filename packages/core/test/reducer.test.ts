@@ -247,3 +247,56 @@ describe("core readiness", () => {
     expect(CORE_READY).toBe(true);
   });
 });
+
+describe("approval escalation (ticket 048)", () => {
+  const base = (seq: number, at: number) => ({ runId: "run-esc", seq, at });
+  const toAwaiting: RunEvent[] = [
+    { type: "RunStarted", ...base(0, 1), agent: "a@v1", principal: "u", input: {} },
+    { type: "ModelCalled", ...base(1, 2), gatewayReqId: "g", model: "m", tokensIn: 1, tokensOut: 1, costUsd: 0 },
+    { type: "ToolIntentEmitted", ...base(2, 3), tool: "t.write", args: {}, risk: "write" },
+    { type: "PolicyEvaluated", ...base(3, 4), decision: "require_approval", rule: "r" },
+    { type: "ApprovalRequested", ...base(4, 5), approverGroup: "approvers", expiresAt: 100 },
+  ];
+
+  it("legal only while awaiting approval; records escalatedTo; the wait state otherwise unchanged", () => {
+    const escalated = replay([
+      ...toAwaiting,
+      { type: "ApprovalEscalated", ...base(5, 6), toGroup: "managers" },
+    ]);
+    expect(escalated.ok).toBe(true);
+    if (!escalated.ok) return;
+    expect(escalated.state.status).toBe("awaiting_approval");
+    expect(escalated.state.pendingApproval).toEqual({
+      approverGroup: "approvers",
+      expiresAt: 100,
+      escalatedTo: "managers",
+    });
+
+    // a grant after escalation proceeds exactly as before
+    const granted = replay([
+      ...toAwaiting,
+      { type: "ApprovalEscalated", ...base(5, 6), toGroup: "managers" },
+      { type: "ApprovalGranted", ...base(6, 7), by: "user:mgr" },
+    ]);
+    expect(granted.ok && granted.state.status).toBe("running");
+    expect(granted.ok && granted.state.pendingApproval).toBeNull();
+  });
+
+  it("illegal anywhere else — a misplaced escalation is a typed rejection", () => {
+    const atStart = replay([
+      toAwaiting[0]!,
+      { type: "ApprovalEscalated", ...base(1, 2), toGroup: "managers" },
+    ]);
+    expect(atStart.ok).toBe(false);
+    if (!atStart.ok) expect(atStart.reason).toMatchObject({ code: "illegal_transition" });
+  });
+
+  it("additive: every pre-048 log shape replays unchanged (spot pin on the approval path)", () => {
+    const pre048 = replay([
+      ...toAwaiting,
+      { type: "ApprovalDenied", ...base(5, 6), by: "system:expiry" },
+    ]);
+    expect(pre048.ok && pre048.state.status).toBe("running");
+    expect(pre048.ok && pre048.state.pendingApproval).toBeNull();
+  });
+});

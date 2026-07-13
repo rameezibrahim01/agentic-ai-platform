@@ -19,6 +19,8 @@ export interface PendingIntent {
 export interface PendingApproval {
   readonly approverGroup: string;
   readonly expiresAt: number;
+  /** Set when the request escalated to a fallback group (ticket 048). */
+  readonly escalatedTo?: string;
 }
 
 export type RunOutcome =
@@ -180,6 +182,17 @@ export function reduce(state: RunState | null, event: RunEvent): ReduceResult {
         seq: event.seq,
         status: "awaiting_approval",
         pendingApproval: { approverGroup: event.approverGroup, expiresAt: event.expiresAt },
+      });
+    }
+
+    case "ApprovalEscalated": {
+      if (state.status !== "awaiting_approval" || state.pendingApproval === null) {
+        return illegal(event.type, state.status, "no approval is pending to escalate");
+      }
+      return ok({
+        ...state,
+        seq: event.seq,
+        pendingApproval: { ...state.pendingApproval, escalatedTo: event.toGroup },
       });
     }
 

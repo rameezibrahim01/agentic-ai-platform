@@ -136,3 +136,25 @@ describe("formatting", () => {
     expect(formatUtc(Date.UTC(2026, 0, 15, 9, 0, 0))).toBe("2026-01-15T09:00:00.000Z");
   });
 });
+
+describe("escalated approvals in the inbox (ticket 048)", () => {
+  it("escalatedTo is computed from the log alone", async () => {
+    const store = new InMemoryEventStore();
+    const base = (seq: number, at: number) => ({ runId: "run-esc-view", seq, at });
+    await store.append("run-esc-view", 0, [
+      { type: "RunStarted", ...base(0, 1), agent: "a@v1", principal: "user:x", input: {} },
+      { type: "ModelCalled", ...base(1, 2), gatewayReqId: "g", model: "m", tokensIn: 1, tokensOut: 1, costUsd: 0 },
+      { type: "ToolIntentEmitted", ...base(2, 3), tool: "t.write", args: { id: 1 }, risk: "write" },
+      { type: "PolicyEvaluated", ...base(3, 4), decision: "require_approval", rule: "r" },
+      { type: "ApprovalRequested", ...base(4, 5), approverGroup: "approvers", expiresAt: 9_999_999 },
+      { type: "ApprovalEscalated", ...base(5, 6), toGroup: "managers" },
+    ]);
+    const rows = await pendingApprovalsView(store);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      runId: "run-esc-view",
+      approverGroup: "approvers",
+      escalatedTo: "managers",
+    });
+  });
+});
