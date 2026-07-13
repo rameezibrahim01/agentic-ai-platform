@@ -122,3 +122,63 @@ describe("tool isolation across lanes (ticket 041)", () => {
     ).toMatchObject({ ok: false });
   });
 });
+
+describe("per-tenant provider API keys (ticket 046)", () => {
+  const stub = [{ kind: "respond" as const, result: fakeMessage("ok") }];
+  const KEY = "sk-ant-acme-lane-credential";
+  const MODELS = {
+    allowlist: ["claude-x"],
+    pricing: { "claude-x": { inputPerMTokUsd: 3, outputPerMTokUsd: 15 } },
+  };
+
+  it("apiKeyEnv gives the lane its own provider; named-but-empty is a typed failure", () => {
+    const withKey = buildModelGateway({
+      env: "dev",
+      stubScript: stub,
+      modelsConfig: { ...MODELS, apiKeyEnv: "ACME_ANTHROPIC_KEY" },
+      processEnv: { ACME_ANTHROPIC_KEY: KEY },
+    });
+    expect(withKey.ok).toBe(true);
+    if (!withKey.ok) return;
+    expect(withKey.providers).toEqual(["anthropic", "stub"]);
+
+    const empty = buildModelGateway({
+      env: "dev",
+      stubScript: stub,
+      modelsConfig: { ...MODELS, apiKeyEnv: "ACME_ANTHROPIC_KEY" },
+      processEnv: {},
+    });
+    expect(empty).toMatchObject({
+      ok: false,
+      error: expect.stringContaining("apiKeyEnv ACME_ANTHROPIC_KEY"),
+    });
+    if (!empty.ok) expect(empty.error).not.toContain(KEY); // never material
+  });
+
+  it("per-lane pin: acme brings its own key while shared globex stays stub-only; fallback unchanged", () => {
+    const acme = buildModelGateway({
+      env: "dev",
+      stubScript: stub,
+      modelsConfig: { ...MODELS, apiKeyEnv: "ACME_ANTHROPIC_KEY" },
+      processEnv: { ACME_ANTHROPIC_KEY: KEY },
+    });
+    const globex = buildModelGateway({ env: "dev", stubScript: stub }); // shared, keyless
+    expect(acme.ok && acme.providers).toEqual(["anthropic", "stub"]);
+    expect(globex.ok && globex.providers).toEqual(["stub"]);
+
+    // absent apiKeyEnv → the deployment key (today's ANTHROPIC_API_KEY path)
+    const fallback = buildModelGateway({
+      env: "dev",
+      stubScript: stub,
+      apiKey: "sk-ant-deployment",
+      modelsConfig: MODELS,
+    });
+    expect(fallback.ok && fallback.providers).toEqual(["anthropic", "stub"]);
+
+    // key material never rides the summary (the 026 pin, extended)
+    for (const build of [acme, fallback]) {
+      expect(build.ok && build.summary).not.toContain(KEY);
+      expect(build.ok && build.summary).not.toContain("sk-ant-deployment");
+    }
+  });
+});

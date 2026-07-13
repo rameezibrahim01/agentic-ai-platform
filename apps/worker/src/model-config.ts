@@ -19,6 +19,9 @@ export const modelsConfigSchema = z
         })
         .strict(),
     ),
+    /** Ticket 046: the env var NAME holding this config's provider key —
+     * never the key itself. Per-tenant configs (041) get per-tenant keys. */
+    apiKeyEnv: z.string().min(1).optional(),
   })
   .strict();
 
@@ -34,6 +37,8 @@ export interface ModelGatewaySetup {
   modelsConfig?: unknown;
   /** Injectable transport for tests — no test touches the network. */
   fetchFn?: typeof fetch;
+  /** Injectable env for tests (apiKeyEnv resolution). Default process.env. */
+  processEnv?: Readonly<Record<string, string | undefined>>;
 }
 
 export type ModelGatewayBuild =
@@ -67,6 +72,22 @@ export function buildModelGateway(setup: ModelGatewaySetup): ModelGatewayBuild {
     }
   }
 
+  // per-lane credential (046): a config that NAMES a key env must find it
+  // populated — named-but-empty is a typed failure, never a silent
+  // fallback to the deployment key. Absent = today's ANTHROPIC_API_KEY.
+  let apiKey = setup.apiKey;
+  if (config?.apiKeyEnv !== undefined) {
+    const env = setup.processEnv ?? process.env;
+    const key = env[config.apiKeyEnv];
+    if (!key) {
+      return {
+        ok: false,
+        error: `models config names apiKeyEnv ${config.apiKeyEnv} but it is empty`,
+      };
+    }
+    apiKey = key;
+  }
+
   // the allowlist comes from config alone — a key never widens it
   const allowlist = ["stub-model", ...(config?.allowlist ?? [])];
   const pricing = {
@@ -77,11 +98,11 @@ export function buildModelGateway(setup: ModelGatewaySetup): ModelGatewayBuild {
   // ordered: real provider primary when a key exists, stub always last —
   // so a revoked/exhausted key degrades to the stub instead of failing runs
   const providers: { name: string; provider: AnthropicProvider | FakeProvider }[] = [];
-  if (setup.apiKey) {
+  if (apiKey) {
     providers.push({
       name: "anthropic",
       provider: new AnthropicProvider({
-        apiKey: setup.apiKey,
+        apiKey,
         ...(setup.fetchFn ? { fetchFn: setup.fetchFn } : {}),
       }),
     });
