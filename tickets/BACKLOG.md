@@ -52,7 +52,15 @@ keys (046), kill-switch write path with ops audit (047), approval escalation (04
 Helm chart + air-gap docs, render-verified floor (049); delegation-to-a-person (050);
 approval notifications, webhook floor (051).
 
-## What remains after 049–051 — needs things only humans can provide
+## Batch 052–056 (the authoring layer) — EXPANDED into ticket files (see tickets/052…056)
+Owner direction after 051: every discussed path (internal departments, government, partner
+demos) needs the same next surface — create/run/observe agents from the browser. Registry
+read pages (052), the builder write path on the 047 pattern (053), the run launcher (054),
+promote/rollback with the honest "unproven" marker (055), and the machine-checked walkthrough
++ GETTING-STARTED.md (056). Deferred within the batch: per-tenant agent registries, operator
+cross-tenant launches, run cancel, eval authoring UI.
+
+## What remains after the authoring layer — needs things only humans can provide
 - **Human-owned drill rows** (docs/drills/phase-{1..4}.md): design-partner usefulness
   sign-off, invoice reconciliation, the partner's REAL write, external red-team review,
   model-swap + economics reads, customer SIEM ingestion, real SSO/SCIM onboarding.
