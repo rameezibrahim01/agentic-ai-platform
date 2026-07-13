@@ -303,4 +303,119 @@ describe("approval flow in the engine (ticket 017)", () => {
     },
     120_000,
   );
+
+  it(
+    "escalation (ticket 048): silence at afterMs escalates in the log; the ORIGINAL expiry still denies",
+    async (ctx) => {
+      if (!env) return ctx.skip();
+      const runId = "run-escalate-expire";
+      const taskQueue = "tq-escalate-expire";
+      const { store, activities, writeExecuted } = makeWorld(WRITE_SCRIPT, { env: "prod" });
+      const worker = await Worker.create({
+        connection: env.nativeConnection,
+        taskQueue,
+        workflowsPath,
+        activities,
+      });
+
+      const result = await worker.runUntil(async () => {
+        const handle = await startAgentRun(
+          env!.client,
+          {
+            ...runInput(runId),
+            approvalTtlMs: 3_000,
+            escalation: { toGroup: "managers", afterMs: 1_000 },
+          },
+          { taskQueue },
+        );
+        return handle.result(); // nobody ever answers
+      });
+
+      expect(result.outcome).toBe("completed");
+      expect(writeExecuted).toHaveLength(0); // escalation buys attention, never execution
+      const events = (await store.load(runId))!.events;
+      const types = events.map((e) => e.type);
+      expect(types).toContain("ApprovalEscalated");
+      expect(types.indexOf("ApprovalEscalated")).toBeLessThan(types.indexOf("ApprovalDenied"));
+      expect(events.find((e) => e.type === "ApprovalEscalated")).toMatchObject({
+        toGroup: "managers",
+      });
+      expect(events.find((e) => e.type === "ApprovalDenied")).toMatchObject({
+        by: "system:expiry",
+      });
+    },
+    120_000,
+  );
+
+  it(
+    "escalation (ticket 048): a decision BEFORE afterMs leaves no escalation event; a grant after escalation executes once",
+    async (ctx) => {
+      if (!env) return ctx.skip();
+      const taskQueue = "tq-escalate-decide";
+      const { store, activities, writeExecuted } = makeWorld(
+        [...WRITE_SCRIPT, ...WRITE_SCRIPT],
+        { env: "prod" },
+      );
+      const worker = await Worker.create({
+        connection: env.nativeConnection,
+        taskQueue,
+        workflowsPath,
+        activities,
+      });
+
+      await worker.runUntil(async () => {
+        // decision-first: escalation point far away, approve immediately
+        const fast = await startAgentRun(
+          env!.client,
+          {
+            ...runInput("run-decide-first"),
+            approvalTtlMs: 60_000,
+            escalation: { toGroup: "managers", afterMs: 30_000 },
+          },
+          { taskQueue },
+        );
+        await waitForVersion(store, "run-decide-first", 5);
+        await sendApprovalDecision(env!.client, "run-decide-first", {
+          granted: true,
+          by: "user:fast",
+        });
+        expect((await fast.result()).outcome).toBe("completed");
+
+        // escalate-then-grant: silence past afterMs, then approval executes
+        const slow = await startAgentRun(
+          env!.client,
+          {
+            ...runInput("run-grant-after-escalation"),
+            approvalTtlMs: 60_000,
+            escalation: { toGroup: "managers", afterMs: 1_000 },
+          },
+          { taskQueue },
+        );
+        await waitForVersion(store, "run-grant-after-escalation", 6); // …ApprovalEscalated landed
+        await sendApprovalDecision(env!.client, "run-grant-after-escalation", {
+          granted: true,
+          by: "user:mgr",
+        });
+        expect((await slow.result()).outcome).toBe("completed");
+      });
+
+      expect(await eventTypes(store, "run-decide-first")).not.toContain("ApprovalEscalated");
+      const slowTypes = await eventTypes(store, "run-grant-after-escalation");
+      expect(slowTypes.filter((t) => t === "ApprovalEscalated")).toHaveLength(1); // exactly once
+      expect(slowTypes).toEqual([
+        "RunStarted",
+        "ModelCalled",
+        "ToolIntentEmitted",
+        "PolicyEvaluated",
+        "ApprovalRequested",
+        "ApprovalEscalated",
+        "ApprovalGranted",
+        "ToolExecuted",
+        "ModelCalled",
+        "RunCompleted",
+      ]);
+      expect(writeExecuted).toHaveLength(2); // one execution per run, no double-fire
+    },
+    120_000,
+  );
 });

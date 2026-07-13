@@ -20,6 +20,7 @@ const {
   resolveIntent,
   resolveStandingGrant,
   recordApprovalDecision,
+  recordEscalation,
   executeApprovedIntent,
   completeRun,
   recordBudgetFailure,
@@ -54,6 +55,10 @@ export interface AgentRunInput {
   /** Approval wait before expiry-to-deny (ticket 017). Default 1h. */
   approvalTtlMs?: number;
   approverGroup?: string;
+  /** Ticket 048: after afterMs of silence the request escalates to toGroup.
+   * The ORIGINAL expiry stands — escalation buys attention, never time.
+   * Ignored unless afterMs < approvalTtlMs. */
+  escalation?: { toGroup: string; afterMs: number };
   /** Delegated credential for governed intents; never inspected here (ticket 019). */
   delegation?: string;
   /**
@@ -236,8 +241,29 @@ export async function agentRun(input: AgentRunInput): Promise<AgentRunResult> {
     version = resolved.version;
 
     if (resolved.kind === "approval_required") {
-      // pause for human: signal or expiry, whichever first; expiry = deny
-      const signalled = await condition(() => pendingDecision !== undefined, approvalTtlMs);
+      // pause for human: signal or expiry, whichever first; expiry = deny.
+      // With an escalation configured (048), the wait has two legs: silence
+      // at afterMs appends ApprovalEscalated (a fact in the log, idempotent
+      // under retry), then the wait continues to the ORIGINAL expiry.
+      let signalled: boolean;
+      const escalation = input.escalation;
+      if (escalation !== undefined && escalation.afterMs > 0 && escalation.afterMs < approvalTtlMs) {
+        signalled = await condition(() => pendingDecision !== undefined, escalation.afterMs);
+        if (!signalled) {
+          const escalated = await recordEscalation({
+            runId,
+            expectedVersion: version,
+            toGroup: escalation.toGroup,
+          });
+          version = escalated.version;
+          signalled = await condition(
+            () => pendingDecision !== undefined,
+            approvalTtlMs - escalation.afterMs,
+          );
+        }
+      } else {
+        signalled = await condition(() => pendingDecision !== undefined, approvalTtlMs);
+      }
       const decision: ApprovalDecision =
         signalled && pendingDecision !== undefined
           ? pendingDecision
