@@ -90,6 +90,53 @@ Open **costs**. Every run's token usage and cost is metered per step and
 rolled up per agent — budgets are enforced by the engine (a runaway agent
 is stopped mid-run), not by asking the model nicely.
 
+## Part 2 — give it a real job (15 more minutes)
+
+The first walkthrough proved the machinery. This one shows a department's
+actual work: checking invoices. The deployment ships a small folder of
+**fabricated** sample documents (`deploy/demo-docs/` — invoice spreadsheets
+and a vendor memo) mounted read-only for agents to analyse.
+
+For this part, restart with the invoice-flavoured demo model:
+
+```sh
+docker compose down && STUB_SCRIPT=demo-sheet docker compose up -d
+```
+
+1. **Create from a template.** Agents → create agent — you'll see template
+   cards. Pick **Invoice checker**: the prompt, tools, and budgets are
+   pre-filled by people who thought about them. Keep the name it suggests
+   and save.
+
+   *What just happened:* a template is only a pre-filled form — you still
+   minted a normal immutable version, and it still has no more power than
+   its grants allow.
+
+2. **Promote to prod, then run it** (same as before). Watch the timeline:
+   the agent **reads** the invoice spreadsheet immediately — reads carry low
+   risk and auto-execute even in prod — but the moment it tries to **write**
+   its findings row, the run pauses in the approval inbox. Same rules, real
+   files.
+
+3. **Approve.** The run completes. See the result:
+
+   ```sh
+   docker compose exec worker cat /data/sheets/findings.csv
+   ```
+
+   One row, written exactly once, into a **separate writable folder** — the
+   documents folder itself is mounted read-only, and the platform's path
+   rules make it structurally unreachable from the write tool.
+
+> Honesty note: without a model API key the "analysis" is scripted — the
+> stub model always flags the same invoice. What this walkthrough certifies
+> is the **governance**: reads flow, writes pause, approvals gate, the audit
+> chain records. Add `ANTHROPIC_API_KEY` to `.env` and the same agent does
+> real analysis under exactly the same rules.
+
+To point these connectors at your OWN folders and mail servers, see the
+"Connectors" section of `deploy/DEPLOYMENT.md`.
+
 ## Where departments fit
 
 Everything you just did can be repeated per department (accounts, finance,

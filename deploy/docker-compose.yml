@@ -52,7 +52,9 @@ services:
       # that tenant's lane; absent = shared, invalid = boot failure
       TOOLS_CONFIG: /etc/platform/tools.config.json
       NOTES_FILE: /data/notes/notes.log
-      STUB_SCRIPT: demo-write
+      # scripted stub-model behavior per boot: demo-write (default) or
+      # demo-sheet (ticket 060's department demo drill)
+      STUB_SCRIPT: ${STUB_SCRIPT:-demo-write}
       # real model provider (ticket 026): both optional; empty = hermetic stub.
       # MODELS_CONFIG is a path inside the container — mount your own file
       # (see models.config.example.json) and set it in .env.
