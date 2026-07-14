@@ -17,6 +17,8 @@ export const DOCS_READ_CAP_BYTES = 256 * 1024;
 export const SHEET_ROW_CAP = 500;
 /** PDFs are parsed in memory — the cap applies BEFORE parsing (ticket 061). */
 export const PDF_INPUT_CAP_BYTES = 4 * 1024 * 1024;
+/** Workbooks too (ticket 062): refuse typed before the parser can OOM. */
+export const XLSX_INPUT_CAP_BYTES = 4 * 1024 * 1024;
 export const PDF_NO_TEXT_NOTE =
   "no extractable text — likely a scanned/image-only PDF (OCR is out of scope)";
 
@@ -64,7 +66,8 @@ export const docsReadContract: ToolContract = {
 export const sheetReadContract: ToolContract = {
   name: "sheet.read",
   version: "v1",
-  description: "Parse a CSV from the documents folder into header + rows.",
+  description:
+    "Parse a CSV or .xlsx (first worksheet; formula cells read as their computed values) from the documents folder into header + rows.",
   risk: "read",
   input: z.object({ path: relPathSchema, limit: z.number().int().positive().max(SHEET_ROW_CAP).optional() }).strict(),
   output: z
@@ -73,6 +76,9 @@ export const sheetReadContract: ToolContract = {
       rows: z.array(z.array(z.string())),
       truncated: z.boolean(),
       provenance: z.literal("external"),
+      /** Ticket 062: .xlsx only — every worksheet name, so multi-sheet
+       * workbooks are visible rather than silently flattened to sheet 1. */
+      sheets: z.array(z.string()).optional(),
     })
     .strict(),
   egress: [],
@@ -253,23 +259,76 @@ export function docsReadExecutor(roots: FileToolRoots): ToolExecutor {
   };
 }
 
+/** How a person reads the cell (ticket 062): numbers plain, dates ISO,
+ * formula cells as their cached RESULT, empty as "". */
+export function coerceCell(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === "object") {
+    const cell = value as { result?: unknown; text?: unknown; richText?: { text: string }[] };
+    if (cell.richText !== undefined) return cell.richText.map((part) => part.text).join("");
+    if (cell.result !== undefined) return coerceCell(cell.result);
+    if (cell.text !== undefined) return coerceCell(cell.text);
+    return JSON.stringify(value);
+  }
+  return String(value);
+}
+
+async function readXlsx(
+  abs: string,
+  cap: number,
+): Promise<{ header: string[]; rows: string[][]; truncated: boolean; sheets: string[] }> {
+  const stats = await lstat(abs);
+  if (stats.size > XLSX_INPUT_CAP_BYTES) {
+    throw new Error(
+      `sheet.read refused: workbook is ${stats.size} bytes; the parse cap is ${XLSX_INPUT_CAP_BYTES}`,
+    );
+  }
+  const { default: ExcelJS } = await import("exceljs");
+  const workbook = new ExcelJS.Workbook();
+  try {
+    await workbook.xlsx.readFile(abs);
+  } catch (error) {
+    throw new Error(`sheet.read refused: cannot parse workbook (${(error as Error).message})`);
+  }
+  const sheets = workbook.worksheets.map((sheet) => sheet.name);
+  const first = workbook.worksheets[0];
+  const records: string[][] = [];
+  first?.eachRow({ includeEmpty: false }, (row) => {
+    // row.values is 1-indexed with an empty slot 0
+    const values = (row.values as unknown[]).slice(1);
+    records.push(values.map(coerceCell));
+  });
+  const header = records[0] ?? [];
+  const body = records.slice(1);
+  const truncated = body.length > cap;
+  return { header, rows: truncated ? body.slice(0, cap) : body, truncated, sheets };
+}
+
 export function sheetReadExecutor(roots: FileToolRoots): ToolExecutor {
   return {
     ref: { name: sheetReadContract.name, version: sheetReadContract.version },
     async execute(args) {
       const { path, limit } = args as { path: string; limit?: number };
-      if (!path.toLowerCase().endsWith(".csv")) {
-        throw new Error(`sheet.read refused: ${path} is not a .csv file`);
+      const lower = path.toLowerCase();
+      if (!lower.endsWith(".csv") && !lower.endsWith(".xlsx")) {
+        throw new Error(`sheet.read refused: ${path} is not a .csv or .xlsx file`);
       }
       const resolved = await resolveUnder(roots.docsDir, path, { mustExist: true });
       if (!resolved.ok) throw new Error(`sheet.read refused: ${resolved.error}`);
+      const cap = Math.min(limit ?? SHEET_ROW_CAP, SHEET_ROW_CAP);
+
+      if (lower.endsWith(".xlsx")) {
+        const { header, rows, truncated, sheets } = await readXlsx(resolved.abs, cap);
+        return { header, rows, truncated, provenance: "external" as const, sheets };
+      }
+
       const { text } = await readTextCapped(resolved.abs);
       const records = parse(text, {
         relax_column_count: true,
         skip_empty_lines: true,
       }) as string[][];
       const header = records[0] ?? [];
-      const cap = Math.min(limit ?? SHEET_ROW_CAP, SHEET_ROW_CAP);
       const body = records.slice(1);
       const truncated = body.length > cap;
       return {
@@ -287,6 +346,11 @@ export function sheetAppendExecutor(roots: Required<FileToolRoots>): ToolExecuto
     ref: { name: sheetAppendContract.name, version: sheetAppendContract.version },
     async execute(args) {
       const { path, row } = args as { path: string; row: string[] };
+      if (path.toLowerCase().endsWith(".xlsx")) {
+        throw new Error(
+          "sheet.append refused: appending to .xlsx means rewriting the whole workbook — out of scope; append to a .csv instead",
+        );
+      }
       if (!path.toLowerCase().endsWith(".csv")) {
         throw new Error(`sheet.append refused: ${path} is not a .csv file`);
       }
