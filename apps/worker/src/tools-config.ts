@@ -1,9 +1,19 @@
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { z } from "zod";
 import { riskTierSchema } from "@platform/core";
 import { refKey, ToolRegistry } from "@platform/tool-registry";
 import type { AgentGrants } from "@platform/tool-registry";
 import type { ToolExecutor } from "@platform/tool-gateway";
+import {
+  docsListContract,
+  docsListExecutor,
+  docsReadContract,
+  docsReadExecutor,
+  sheetAppendContract,
+  sheetAppendExecutor,
+  sheetReadContract,
+  sheetReadExecutor,
+} from "./tools/files.js";
 import { notesAppendContract, notesAppendExecutor } from "./tools/notes.js";
 import { sqlQueryContract, sqlQueryExecutor } from "./tools/sql.js";
 import { McpStdioClient } from "./mcp/client.js";
@@ -86,6 +96,13 @@ export const toolsConfigSchema = z
     /** Ticket 045: required when tools includes sql.query@v1. The env var
      * NAME holding the read-only connection string — never the string. */
     sqlTools: z.object({ connectionEnv: z.string().min(1) }).strict().optional(),
+    /** Ticket 057: required when tools include the file connector. docsDir
+     * is the read-only root; dataDir the SEPARATE writable root that
+     * sheet.append@v1 (and nothing else) may touch. */
+    fileTools: z
+      .object({ docsDir: z.string().min(1), dataDir: z.string().min(1).optional() })
+      .strict()
+      .optional(),
   })
   .strict();
 
@@ -114,6 +131,37 @@ const CATALOG: Record<string, CatalogEntry> = {
         : { ok: false, error: "notes.append@v1 requires NOTES_FILE" },
   },
 };
+
+/** The read half of the file connector (057); sheet.append is handled
+ * separately because it alone needs the writable dataDir. */
+const FILE_TOOL_CONTRACTS: Record<
+  string,
+  {
+    contract: typeof docsListContract;
+    makeExecutor(roots: { docsDir: string; dataDir?: string }): ToolExecutor;
+  }
+> = {
+  [refKey(docsListContract)]: { contract: docsListContract, makeExecutor: docsListExecutor },
+  [refKey(docsReadContract)]: { contract: docsReadContract, makeExecutor: docsReadExecutor },
+  [refKey(sheetReadContract)]: { contract: sheetReadContract, makeExecutor: sheetReadExecutor },
+  [refKey(sheetAppendContract)]: {
+    contract: sheetAppendContract,
+    // never called (the loop special-cases append to enforce dataDir); the
+    // entry exists so ref lookup treats all four as file-connector refs
+    makeExecutor: () => {
+      throw new Error("sheet.append is wired via its dataDir branch");
+    },
+  },
+};
+
+async function missingDirectory(dir: string): Promise<string | null> {
+  try {
+    const stats = await stat(dir);
+    return stats.isDirectory() ? null : `${dir} exists but is not a directory`;
+  } catch {
+    return `${dir} does not exist`;
+  }
+}
 
 export interface BuiltTools {
   registry: ToolRegistry;
@@ -160,6 +208,37 @@ export async function buildTools(
   };
 
   for (const ref of config.tools) {
+    // file connector (ticket 057): needs its config section; a named
+    // directory that is missing at boot is a loud boot failure, and
+    // sheet.append additionally needs the SEPARATE writable dataDir
+    const fileContract = FILE_TOOL_CONTRACTS[ref];
+    if (fileContract !== undefined) {
+      if (config.fileTools === undefined) {
+        return failBoot(`${ref} requires the fileTools config`);
+      }
+      const docsDirError = await missingDirectory(config.fileTools.docsDir);
+      if (docsDirError !== null) {
+        return failBoot(`${ref}: fileTools.docsDir ${docsDirError}`);
+      }
+      if (ref === refKey(sheetAppendContract)) {
+        if (config.fileTools.dataDir === undefined) {
+          return failBoot("sheet.append@v1 requires fileTools.dataDir (the writable root)");
+        }
+        const dataDirError = await missingDirectory(config.fileTools.dataDir);
+        if (dataDirError !== null) {
+          return failBoot(`sheet.append@v1: fileTools.dataDir ${dataDirError}`);
+        }
+        registry.register(sheetAppendContract);
+        executors.push(
+          sheetAppendExecutor({ docsDir: config.fileTools.docsDir, dataDir: config.fileTools.dataDir }),
+        );
+      } else {
+        registry.register(fileContract.contract);
+        executors.push(fileContract.makeExecutor(config.fileTools));
+      }
+      enabled.add(ref);
+      continue;
+    }
     // sql.query@v1 (ticket 045): needs its config section, not just deps —
     // the connection comes from the env var the config NAMES
     if (ref === refKey(sqlQueryContract)) {

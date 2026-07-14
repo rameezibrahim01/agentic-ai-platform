@@ -1,0 +1,6 @@
+invoice_id,vendor,date,amount_aed,status
+INV-1006,Dune Logistics LLC,2026-04-02,8400.50,paid
+INV-1007,Oasis Catering,2026-04-15,1120.00,paid
+INV-1008,Falcon Office Supplies,2026-05-06,1250.00,pending
+INV-1009,"Gulf IT Services, FZE",2026-05-22,4200.00,paid
+INV-1010,Dune Logistics LLC,2026-06-11,8650.75,pending
