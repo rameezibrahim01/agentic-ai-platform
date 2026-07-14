@@ -318,6 +318,43 @@ function stubScript(): FakeBehavior[] {
       { kind: "respond", result: fakeMessage("drill note appended", undefined, "stub-model") },
     ];
   }
+  // ticket 060: the department demo's scripted model — read a spreadsheet
+  // (auto-executes: read tier), then append a findings row (pauses in prod)
+  if (process.env["STUB_SCRIPT"] === "demo-sheet") {
+    return [
+      {
+        kind: "respond",
+        result: fakeIntent(
+          { tool: "sheet.read@v1", args: { path: "invoices-2026-q2.csv" } },
+          undefined,
+          "stub-model",
+        ),
+      },
+      {
+        kind: "respond",
+        result: fakeIntent(
+          {
+            tool: "sheet.append@v1",
+            args: {
+              path: "findings.csv",
+              row: [
+                "INV-1008",
+                "Falcon Office Supplies",
+                "pending > 30 days, amount matches quarterly pattern",
+                'memo check: "no rate change" for this vendor',
+              ],
+            },
+          },
+          undefined,
+          "stub-model",
+        ),
+      },
+      {
+        kind: "respond",
+        result: fakeMessage("findings row appended for review", undefined, "stub-model"),
+      },
+    ];
+  }
   return [
     {
       kind: "respond",

@@ -51,3 +51,20 @@ Console-authored versions have no golden eval suite: promoting one is
 allowed but marked `unproven` in the UI and in `ops_audit` (regenerate the
 manifest with `scripts/evals/gen-console-manifest.sh` when suites change).
 Rollback is never gated — by eval status or anything else.
+
+## Connectors (tickets 057/058)
+Agents reach real systems only through config-named connectors:
+
+- **Files & spreadsheets** (`fileTools`): point `docsDir` at a read-only
+  mount of the department's documents and `dataDir` at a SEPARATE writable
+  folder for appended rows. The shipped profile uses `./demo-docs` and the
+  `sheets` volume — replace the mount, keep the shape. Reads are capped and
+  path-contained; `sheet.append` is a governed write (prod approval).
+- **Email** (`mailTools`): point `imapUrlEnv`/`smtpUrlEnv` at env vars
+  holding your IMAP/SMTP URLs (credentials embedded — secrets, named-var
+  pattern). Add the mail hosts to `egressAllowlist` and set
+  `allowedRecipientDomains` or every send is refused (deny by default).
+  No SMTP = read-only mailbox. IMAP/SMTP keep this fully on-premise.
+
+Enable a connector's tools in `tools.config.json` (`tools` array + a grant
+per agent), restart the worker, and the builder's tool picker shows them.
