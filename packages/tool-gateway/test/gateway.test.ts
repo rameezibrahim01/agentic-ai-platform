@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { DEFAULT_RULES } from "@platform/policy";
 import { ToolRegistry, type ToolContract } from "@platform/tool-registry";
-import { createToolGateway, digestOf, type ToolGatewayOptions } from "@platform/tool-gateway";
+import { createToolGateway, digestOf, RESULT_PREVIEW_CAP, resultPreviewOf, type ToolGatewayOptions } from "@platform/tool-gateway";
 
 const SECRET_VALUE = "sk-tool-FAKE-cred-000";
 const AGENT = "support-triage@v1";
@@ -99,7 +99,20 @@ describe("tool gateway pipeline (ticket 016)", () => {
       });
       expect(outcome.audit.policy).toEqual({ decision: "allow", rule: "read-auto-allow" });
       expect(outcome.audit.executed.resultDigest).toBe(digestOf({ records: [{ id: 7 }] }));
+      // ticket 063: the executed audit carries the capped human excerpt
+      expect(outcome.audit.executed.resultPreview).toBe(JSON.stringify({ records: [{ id: 7 }] }));
     }
+  });
+
+  it("result previews (ticket 063): capped at code points, absent for empty results", () => {
+    expect(resultPreviewOf(null)).toBeUndefined();
+    expect(resultPreviewOf(undefined)).toBeUndefined();
+    expect(resultPreviewOf("plain text")).toBe("plain text");
+    expect(resultPreviewOf({ a: 1 })).toBe('{"a":1}');
+    const long = resultPreviewOf("\u{1F600}".repeat(RESULT_PREVIEW_CAP + 50));
+    expect(long).toBeDefined();
+    expect(Array.from(long!)).toHaveLength(RESULT_PREVIEW_CAP); // never splits a surrogate pair
+    expect(long!.endsWith("\u{2026}")).toBe(true);
   });
 
   it("grant test: any out-of-grant tool is refused regardless of arguments, and audited", async () => {

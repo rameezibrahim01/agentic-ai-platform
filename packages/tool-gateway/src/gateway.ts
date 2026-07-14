@@ -49,6 +49,21 @@ export interface IntentRequest {
 export type ToolIntentPayload = Omit<ToolIntentEmitted, "type" | "runId" | "seq" | "at">;
 export type PolicyEvaluatedPayload = Omit<PolicyEvaluated, "type" | "runId" | "seq" | "at">;
 export type ToolExecutedPayload = Omit<ToolExecuted, "type" | "runId" | "seq" | "at">;
+
+export const RESULT_PREVIEW_CAP = 2_000;
+
+/** Ticket 063: the capped human excerpt of a tool result. Cap counts CODE
+ * POINTS (never splits a surrogate pair); null/undefined results yield no
+ * preview at all — absence, not an empty string. */
+export function resultPreviewOf(value: unknown): string | undefined {
+  if (value === null || value === undefined) return undefined;
+  const serialized = typeof value === "string" ? value : JSON.stringify(value);
+  if (serialized === undefined) return undefined;
+  const points = Array.from(serialized);
+  return points.length > RESULT_PREVIEW_CAP
+    ? `${points.slice(0, RESULT_PREVIEW_CAP - 1).join("")}…`
+    : serialized;
+}
 export type ToolFailedPayload = Omit<ToolFailed, "type" | "runId" | "seq" | "at">;
 
 export type RefusalReason =
@@ -278,6 +293,7 @@ export function createToolGateway(options: ToolGatewayOptions): ToolGateway {
       return refuse({ code: "invalid_output", issues }, { intent, policy });
     }
 
+    const preview = resultPreviewOf(output.value);
     return {
       kind: "executed",
       result: output.value,
@@ -288,6 +304,7 @@ export function createToolGateway(options: ToolGatewayOptions): ToolGateway {
           gatewayReqId: makeReqId(),
           resultDigest: digestOf(output.value),
           latencyMs: Math.max(0, nowMs() - startedAt),
+          ...(preview !== undefined ? { resultPreview: preview } : {}),
         },
       },
     };

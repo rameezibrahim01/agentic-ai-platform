@@ -154,5 +154,20 @@ if docker compose exec -T worker sh -c 'ls /data/docs' | grep -q findings; then
   echo "FAIL: something wrote into the read-only docs root"
   exit 1
 fi
+
+echo "== drill p5-2: the timeline shows WHAT the read found (ticket 063) =="
+# the sheet.read execution's preview must carry real content from the seed
+# CSV — the digest proves integrity, the preview shows the evidence
+PREVIEW=$(psql_q "select event->>'resultPreview' from run_events where run_id='$RUN_ID' \
+  and event->>'type'='ToolExecuted' order by seq limit 1")
+case "$PREVIEW" in
+  *"Dune Logistics"*) : ;;
+  *)
+    echo "FAIL: the sheet.read ToolExecuted preview does not show the seed vendor"
+    echo "  preview: ${PREVIEW:0:200}"
+    exit 1
+    ;;
+esac
+echo "PASS: the read's result preview carries the seed data"
 echo "PASS: template -> create -> promote -> run -> read-auto/write-pause -> approve -> one row"
 echo "DRILL P5-2 (department demo): PASS"
