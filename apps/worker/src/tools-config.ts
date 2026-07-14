@@ -14,6 +14,18 @@ import {
   sheetReadContract,
   sheetReadExecutor,
 } from "./tools/files.js";
+import {
+  hostOf,
+  mailReadContract,
+  mailReadExecutor,
+  mailSearchContract,
+  mailSearchExecutor,
+  mailSendContract,
+  mailSendExecutor,
+  makeImapMailbox,
+  makeSmtpSender,
+} from "./tools/mail.js";
+import type { MailboxClient, MailSender } from "./tools/mail.js";
 import { notesAppendContract, notesAppendExecutor } from "./tools/notes.js";
 import { sqlQueryContract, sqlQueryExecutor } from "./tools/sql.js";
 import { McpStdioClient } from "./mcp/client.js";
@@ -103,6 +115,18 @@ export const toolsConfigSchema = z
       .object({ docsDir: z.string().min(1), dataDir: z.string().min(1).optional() })
       .strict()
       .optional(),
+    /** Ticket 058: required when tools include the mail connector. Env var
+     * NAMES only (046 rule) — the URLs embed credentials and never appear
+     * here. No smtpUrlEnv = read-only mailbox; no allowedRecipientDomains =
+     * every send refused (deny by default). */
+    mailTools: z
+      .object({
+        imapUrlEnv: z.string().min(1),
+        smtpUrlEnv: z.string().min(1).optional(),
+        allowedRecipientDomains: z.array(z.string().min(1)).optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 
@@ -115,6 +139,9 @@ export interface CatalogDeps {
   fetchFn?: typeof fetch;
   /** Injectable env for tests (sql.query@v1's connectionEnv). Default process.env. */
   env?: Readonly<Record<string, string | undefined>>;
+  /** Ticket 058: hermetic seam — tests inject fakes; production builds real
+   * IMAP/SMTP clients from the env URLs. */
+  mailClients?: { mailbox?: MailboxClient; sender?: MailSender };
 }
 
 interface CatalogEntry {
@@ -235,6 +262,47 @@ export async function buildTools(
       } else {
         registry.register(fileContract.contract);
         executors.push(fileContract.makeExecutor(config.fileTools));
+      }
+      enabled.add(ref);
+      continue;
+    }
+    // mail connector (ticket 058): env var NAMES in config, URLs stay
+    // secrets; reads need IMAP, mail.send additionally needs SMTP
+    if (ref === "mail.search@v1" || ref === "mail.read@v1" || ref === "mail.send@v1") {
+      if (config.mailTools === undefined) {
+        return failBoot(`${ref} requires the mailTools config`);
+      }
+      const env = deps.env ?? process.env;
+      const imapUrl = env[config.mailTools.imapUrlEnv];
+      if (!imapUrl && deps.mailClients?.mailbox === undefined) {
+        return failBoot(`${ref}: IMAP env ${config.mailTools.imapUrlEnv} is named but empty`);
+      }
+      if (ref === "mail.send@v1") {
+        if (config.mailTools.smtpUrlEnv === undefined) {
+          return failBoot("mail.send@v1 requires mailTools.smtpUrlEnv (read-only mailbox otherwise)");
+        }
+        const smtpUrl = env[config.mailTools.smtpUrlEnv];
+        if (!smtpUrl && deps.mailClients?.sender === undefined) {
+          return failBoot(`mail.send@v1: SMTP env ${config.mailTools.smtpUrlEnv} is named but empty`);
+        }
+        const egress = smtpUrl ? [hostOf(smtpUrl)] : [];
+        registry.register(mailSendContract(egress));
+        executors.push(
+          mailSendExecutor(
+            deps.mailClients?.sender ?? makeSmtpSender(smtpUrl!),
+            config.mailTools.allowedRecipientDomains,
+          ),
+        );
+      } else {
+        const egress = imapUrl ? [hostOf(imapUrl)] : [];
+        const mailbox = deps.mailClients?.mailbox ?? makeImapMailbox(imapUrl!);
+        if (ref === "mail.search@v1") {
+          registry.register(mailSearchContract(egress));
+          executors.push(mailSearchExecutor(mailbox));
+        } else {
+          registry.register(mailReadContract(egress));
+          executors.push(mailReadExecutor(mailbox));
+        }
       }
       enabled.add(ref);
       continue;

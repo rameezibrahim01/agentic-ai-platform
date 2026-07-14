@@ -74,6 +74,10 @@ services:
       # approval notifications (ticket 051): empty = off
       NOTIFICATIONS_CONFIG: ${NOTIFICATIONS_CONFIG:-}
       APPROVALS_WEBHOOK_URL: ${APPROVALS_WEBHOOK_URL:-}
+      # email connector (ticket 058): env var names match mailTools in the
+      # tools config; empty = the mail tools do not exist
+      MAIL_IMAP_URL: ${MAIL_IMAP_URL:-}
+      MAIL_SMTP_URL: ${MAIL_SMTP_URL:-}
     volumes:
       - "./tools.config.json:/etc/platform/tools.config.json:ro"
       - "./agents.config.json:/etc/platform/agents.config.json:ro"
