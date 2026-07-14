@@ -68,6 +68,13 @@ send (058), curated agent templates in the builder (059), and the department dem
 GETTING-STARTED part 2 (060). Deferred within the batch: PDF/XLSX extraction, OAuth
 mailboxes, attachments, live-mail drill (HUMAN row), per-tenant connector roots.
 
+## Batch 061–063 (deeper connectors + visible results) — EXPANDED into ticket files (see tickets/061…063)
+Owner "Go ahead" after the connector layer: pay 057's stated format debts and make runs show
+their evidence. PDF text extraction (061), .xlsx reading (062), and additive result previews
+on ToolExecuted so the timeline shows WHAT the agent found, not just that it acted (063).
+Deferred within the batch: OCR, .xls, workbook writing, per-sheet selection, full result
+storage.
+
 ## What remains after the authoring layer — needs things only humans can provide
 - **Human-owned drill rows** (docs/drills/phase-{1..4}.md): design-partner usefulness
   sign-off, invoice reconciliation, the partner's REAL write, external red-team review,
