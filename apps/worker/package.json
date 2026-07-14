@@ -21,12 +21,15 @@
     "@temporalio/worker": "^1.20.2",
     "@temporalio/workflow": "^1.20.2",
     "csv-parse": "^5.6.0",
+    "imapflow": "^1.0.171",
+    "nodemailer": "^6.9.16",
     "pg": "^8.13.1",
     "tsx": "^4.19.2"
   },
   "devDependencies": {
     "@opentelemetry/sdk-trace-base": "^2.9.0",
     "@temporalio/testing": "^1.20.2",
+    "@types/nodemailer": "^6.4.17",
     "@types/pg": "^8.20.0",
     "vitest": "^2.1.9",
     "zod": "^3.25.76"
