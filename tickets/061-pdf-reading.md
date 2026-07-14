@@ -1,6 +1,6 @@
 # 061 — PDF reading: real invoices are PDFs
 
-**Packages:** `apps/worker`, `deploy/` · **Depends on:** 057 · **Allowed deps:** `pdf-parse` (worker)
+**Packages:** `apps/worker`, `deploy/` · **Depends on:** 057 · **Allowed deps:** `pdfjs-dist` (worker; was `pdf-parse`, whose wrapper is broken against its own bundled pdf.js — verified before implementation, so the batch uses Mozilla's maintained upstream directly)
 
 ## Context
 057 shipped the file connector with an honest limitation: text-family files only, "real
@@ -13,8 +13,7 @@ different beast (heavier deps, model-adjacent failure modes) and stays out of sc
 plainly.
 
 ## Scope
-1. `docs.read@v1` accepts `.pdf`: extract the text layer via `pdf-parse` (imported through
-   `pdf-parse/lib/pdf-parse.js` — the package's index has an import-time quirk), then apply
+1. `docs.read@v1` accepts `.pdf`: extract the text layer via `pdfjs-dist` (legacy Node build, text content only, no canvas), then apply
    the EXISTING byte cap + truncated flag on the extracted text. Output gains an additive
    optional field `note` used for exactly one case: a parseable PDF with no extractable text
    (`"no extractable text — likely a scanned/image-only PDF (OCR is out of scope)"`).

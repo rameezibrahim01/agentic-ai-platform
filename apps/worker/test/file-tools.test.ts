@@ -1,6 +1,7 @@
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { DEFAULT_RULES } from "@platform/policy";
 import { createToolGateway } from "@platform/tool-gateway";
@@ -9,6 +10,8 @@ import {
   DOCS_READ_CAP_BYTES,
   docsListExecutor,
   docsReadExecutor,
+  PDF_INPUT_CAP_BYTES,
+  PDF_NO_TEXT_NOTE,
   SHEET_ROW_CAP,
   sheetAppendExecutor,
   sheetReadExecutor,
@@ -100,6 +103,49 @@ describe("docs.list / docs.read (ticket 057)", () => {
     };
     expect(capped.truncated).toBe(true);
     expect(capped.text).toHaveLength(DOCS_READ_CAP_BYTES);
+  });
+});
+
+describe("docs.read on PDFs (ticket 061)", () => {
+  const fixtures = join(dirname(fileURLToPath(import.meta.url)), "fixtures");
+
+  it("extracts the text layer from a real PDF, provenance-labeled, note-free", async () => {
+    await copyFile(join(fixtures, "fixture-061.pdf"), join(docsDir, "invoice.pdf"));
+    const result = (await docsReadExecutor(roots()).execute({ path: "invoice.pdf" }, {} as never)) as {
+      text: string;
+      truncated: boolean;
+      provenance: string;
+      note?: string;
+    };
+    expect(result.text).toContain("PLATFORM PDF FIXTURE 061");
+    expect(result).toMatchObject({ truncated: false, provenance: "external" });
+    expect(result.note).toBeUndefined();
+  });
+
+  it("a parseable PDF with no text layer yields empty text WITH the typed note", async () => {
+    await copyFile(join(fixtures, "fixture-061-notext.pdf"), join(docsDir, "scan.pdf"));
+    const result = (await docsReadExecutor(roots()).execute({ path: "scan.pdf" }, {} as never)) as {
+      text: string;
+      note?: string;
+    };
+    expect(result.text).toBe("");
+    expect(result.note).toBe(PDF_NO_TEXT_NOTE);
+  });
+
+  it("corrupt and oversized PDFs are typed refusals; containment still holds for .pdf", async () => {
+    await writeFile(join(docsDir, "broken.pdf"), "%PDF-1.4 this is not a pdf", "utf8");
+    await expect(
+      docsReadExecutor(roots()).execute({ path: "broken.pdf" }, {} as never),
+    ).rejects.toThrow(/cannot parse PDF/);
+
+    await writeFile(join(docsDir, "huge.pdf"), Buffer.alloc(PDF_INPUT_CAP_BYTES + 1), "utf8");
+    await expect(
+      docsReadExecutor(roots()).execute({ path: "huge.pdf" }, {} as never),
+    ).rejects.toThrow(/parse cap/);
+
+    await expect(
+      docsReadExecutor(roots()).execute({ path: "../escape.pdf" }, {} as never),
+    ).rejects.toThrow(/escapes/);
   });
 });
 

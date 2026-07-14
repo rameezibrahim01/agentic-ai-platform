@@ -15,6 +15,10 @@ import type { ToolExecutor } from "@platform/tool-gateway";
 export const DOCS_LIST_CAP = 200;
 export const DOCS_READ_CAP_BYTES = 256 * 1024;
 export const SHEET_ROW_CAP = 500;
+/** PDFs are parsed in memory — the cap applies BEFORE parsing (ticket 061). */
+export const PDF_INPUT_CAP_BYTES = 4 * 1024 * 1024;
+export const PDF_NO_TEXT_NOTE =
+  "no extractable text — likely a scanned/image-only PDF (OCR is out of scope)";
 
 const TEXT_EXTENSIONS = [".txt", ".md", ".csv", ".json", ".log"];
 
@@ -40,11 +44,19 @@ export const docsListContract: ToolContract = {
 export const docsReadContract: ToolContract = {
   name: "docs.read",
   version: "v1",
-  description: "Read one text document (.txt/.md/.csv/.json/.log) from the documents folder.",
+  description:
+    "Read one document (.txt/.md/.csv/.json/.log, or .pdf text-layer extraction) from the documents folder.",
   risk: "read",
   input: z.object({ path: relPathSchema }).strict(),
   output: z
-    .object({ path: z.string(), text: z.string(), truncated: z.boolean(), provenance: z.literal("external") })
+    .object({
+      path: z.string(),
+      text: z.string(),
+      truncated: z.boolean(),
+      provenance: z.literal("external"),
+      /** Ticket 061: set for exactly one case — a parseable PDF with no text layer. */
+      note: z.string().optional(),
+    })
     .strict(),
   egress: [],
 };
@@ -171,19 +183,70 @@ export function docsListExecutor(roots: FileToolRoots): ToolExecutor {
   };
 }
 
+/** Text-layer extraction only (ticket 061): parseable-but-textless PDFs get
+ * the typed note instead of silence; OCR is out of scope, said in-band. */
+async function extractPdfText(abs: string): Promise<string> {
+  const stats = await lstat(abs);
+  if (stats.size > PDF_INPUT_CAP_BYTES) {
+    throw new Error(
+      `docs.read refused: PDF is ${stats.size} bytes; the parse cap is ${PDF_INPUT_CAP_BYTES}`,
+    );
+  }
+  const { readFile } = await import("node:fs/promises");
+  const bytes = await readFile(abs);
+  interface PdfDocument {
+    numPages: number;
+    getPage(n: number): Promise<{ getTextContent(): Promise<{ items: { str?: string }[] }> }>;
+    destroy(): Promise<void>;
+  }
+  const pdfjs = (await import("pdfjs-dist/legacy/build/pdf.mjs")) as unknown as {
+    getDocument(params: { data: Uint8Array; verbosity: number }): { promise: Promise<PdfDocument> };
+  };
+  let doc: PdfDocument;
+  try {
+    doc = await pdfjs.getDocument({ data: new Uint8Array(bytes), verbosity: 0 }).promise;
+  } catch (error) {
+    throw new Error(`docs.read refused: cannot parse PDF (${(error as Error).message})`);
+  }
+  try {
+    const pages: string[] = [];
+    for (let pageNumber = 1; pageNumber <= doc.numPages; pageNumber += 1) {
+      const content = await (await doc.getPage(pageNumber)).getTextContent();
+      pages.push(content.items.map((item) => item.str ?? "").join(" "));
+    }
+    return pages.join("\n").trim();
+  } finally {
+    await doc.destroy();
+  }
+}
+
 export function docsReadExecutor(roots: FileToolRoots): ToolExecutor {
   return {
     ref: { name: docsReadContract.name, version: docsReadContract.version },
     async execute(args) {
       const { path } = args as { path: string };
       const extension = path.slice(path.lastIndexOf(".")).toLowerCase();
-      if (!TEXT_EXTENSIONS.includes(extension)) {
+      if (!TEXT_EXTENSIONS.includes(extension) && extension !== ".pdf") {
         throw new Error(
-          `docs.read refused: only ${TEXT_EXTENSIONS.join("/")} files are readable (got ${path})`,
+          `docs.read refused: only ${TEXT_EXTENSIONS.join("/")}/.pdf files are readable (got ${path})`,
         );
       }
       const resolved = await resolveUnder(roots.docsDir, path, { mustExist: true });
       if (!resolved.ok) throw new Error(`docs.read refused: ${resolved.error}`);
+      if (extension === ".pdf") {
+        const extracted = await extractPdfText(resolved.abs);
+        const truncated = Buffer.byteLength(extracted, "utf8") > DOCS_READ_CAP_BYTES;
+        const text = truncated
+          ? Buffer.from(extracted, "utf8").subarray(0, DOCS_READ_CAP_BYTES).toString("utf8")
+          : extracted;
+        return {
+          path,
+          text,
+          truncated,
+          provenance: "external" as const,
+          ...(text === "" ? { note: PDF_NO_TEXT_NOTE } : {}),
+        };
+      }
       const { text, truncated } = await readTextCapped(resolved.abs);
       return { path, text, truncated, provenance: "external" as const };
     },
