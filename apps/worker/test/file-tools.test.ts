@@ -6,12 +6,14 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { DEFAULT_RULES } from "@platform/policy";
 import { createToolGateway } from "@platform/tool-gateway";
 import {
+  coerceCell,
   DOCS_LIST_CAP,
   DOCS_READ_CAP_BYTES,
   docsListExecutor,
   docsReadExecutor,
   PDF_INPUT_CAP_BYTES,
   PDF_NO_TEXT_NOTE,
+  XLSX_INPUT_CAP_BYTES,
   SHEET_ROW_CAP,
   sheetAppendExecutor,
   sheetReadExecutor,
@@ -199,6 +201,61 @@ describe("sheet.read / sheet.append (ticket 057)", () => {
     await expect(append.execute({ path: "notes.txt", row: ["x"] }, {} as never)).rejects.toThrow(
       /not a .csv/,
     );
+  });
+});
+
+describe("sheet.read on .xlsx (ticket 062)", () => {
+  const fixtures = join(dirname(fileURLToPath(import.meta.url)), "fixtures");
+
+  it("reads the first worksheet as a person sees it: strings, numbers, ISO dates, formula RESULTS, empty cells", async () => {
+    await copyFile(join(fixtures, "fixture-062.xlsx"), join(docsDir, "register.xlsx"));
+    const result = (await sheetReadExecutor(roots()).execute({ path: "register.xlsx" }, {} as never)) as {
+      header: string[];
+      rows: string[][];
+      truncated: boolean;
+      provenance: string;
+      sheets?: string[];
+    };
+    expect(result.header).toEqual(["invoice_id", "vendor", "amount_aed", "issued", "total_with_vat"]);
+    expect(result.rows[0]).toEqual([
+      "INV-2001",
+      "Gulf IT, FZE",
+      "1500.5",
+      "2026-06-01T00:00:00.000Z",
+      "1575.525", // the formula cell reads as its cached RESULT
+    ]);
+    expect(result.rows[1]).toEqual(["INV-2002", 'says "hi"', "7"]);
+    expect(result).toMatchObject({ truncated: false, provenance: "external" });
+    expect(result.sheets).toEqual(["Invoices", "Notes"]); // multi-sheet visible
+  });
+
+  it("oversized, corrupt, and append-to-xlsx are three distinct typed refusals", async () => {
+    await writeFile(join(docsDir, "huge.xlsx"), Buffer.alloc(XLSX_INPUT_CAP_BYTES + 1), "utf8");
+    await expect(
+      sheetReadExecutor(roots()).execute({ path: "huge.xlsx" }, {} as never),
+    ).rejects.toThrow(/parse cap/);
+
+    await writeFile(join(docsDir, "broken.xlsx"), "not a zip at all", "utf8");
+    await expect(
+      sheetReadExecutor(roots()).execute({ path: "broken.xlsx" }, {} as never),
+    ).rejects.toThrow(/cannot parse workbook/);
+
+    await expect(
+      sheetAppendExecutor({ docsDir, dataDir }).execute(
+        { path: "register.xlsx", row: ["x"] },
+        {} as never,
+      ),
+    ).rejects.toThrow(/rewriting the whole workbook/);
+  });
+
+  it("coerceCell covers the shapes exceljs produces", () => {
+    expect(coerceCell(null)).toBe("");
+    expect(coerceCell(undefined)).toBe("");
+    expect(coerceCell(7)).toBe("7");
+    expect(coerceCell(new Date(Date.UTC(2026, 0, 2)))).toBe("2026-01-02T00:00:00.000Z");
+    expect(coerceCell({ formula: "A1*2", result: 14 })).toBe("14");
+    expect(coerceCell({ richText: [{ text: "a" }, { text: "b" }] })).toBe("ab");
+    expect(coerceCell({ text: "hyperlinked" })).toBe("hyperlinked");
   });
 });
 
