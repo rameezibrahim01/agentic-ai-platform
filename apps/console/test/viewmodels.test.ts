@@ -69,6 +69,42 @@ describe("runListView (ticket 009)", () => {
   });
 });
 
+describe("result previews in the timeline (ticket 063)", () => {
+  it("ToolExecuted rows show the preview when present and stay unchanged without one", async () => {
+    const { InMemoryEventStore } = await import("@platform/storage");
+    const store = new InMemoryEventStore();
+    const base = { runId: "run-preview", at: Date.UTC(2026, 0, 1) };
+    await store.append("run-preview", 0, [
+      { type: "RunStarted", ...base, seq: 0, agent: "a@v1", principal: "user:x", input: {} },
+      {
+        type: "ToolIntentEmitted", ...base, seq: 1,
+        tool: "sheet.read@v1", args: { path: "x.csv" }, risk: "read",
+      },
+      { type: "PolicyEvaluated", ...base, seq: 2, decision: "allow", rule: "read-auto-allow" },
+      {
+        type: "ToolExecuted", ...base, seq: 3,
+        gatewayReqId: "g1", resultDigest: "d1", latencyMs: 12,
+        resultPreview: '{"rows":[["INV-1","Dune Logistics"]]}',
+      },
+      {
+        type: "ToolIntentEmitted", ...base, seq: 4,
+        tool: "notes.append@v1", args: { text: "n" }, risk: "write",
+      },
+      { type: "PolicyEvaluated", ...base, seq: 5, decision: "allow", rule: "dev-writes-auto" },
+      // an OLD-shape event (no preview): must render exactly as before
+      { type: "ToolExecuted", ...base, seq: 6, gatewayReqId: "g2", resultDigest: "d2", latencyMs: 5 },
+      { type: "RunCompleted", ...base, seq: 7, outcome: "done", totalCostUsd: 0, steps: 2 },
+    ]);
+    const timeline = await runTimelineView(store, "run-preview");
+    expect(timeline.ok).toBe(true);
+    if (!timeline.ok) return;
+    const executed = timeline.rows.filter((r) => r.type === "ToolExecuted");
+    expect(executed[0]!.summary).toContain("Dune Logistics"); // the evidence is visible
+    expect(executed[0]!.summary).toContain("digest d1"); // integrity stays visible
+    expect(executed[1]!.summary).toBe("tool executed (5ms, digest d2)"); // old shape unchanged
+  });
+});
+
 describe("runTimelineView", () => {
   it("shows every event in seq order with per-step tokens/cost and a correct running total", async () => {
     const store = await seededStore();

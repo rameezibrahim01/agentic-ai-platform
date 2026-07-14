@@ -109,6 +109,11 @@ export const toolExecutedSchema = z
     gatewayReqId: z.string().min(1),
     resultDigest: z.string().min(1),
     latencyMs: z.number().int().nonnegative(),
+    /** Ticket 063, additive (rule 5): a capped human-oriented excerpt of the
+     * tool result. The digest stays the integrity truth; this is a courtesy.
+     * Same data class as ToolIntentEmitted.args — encrypted at rest with the
+     * rest of the payload when keys are configured. */
+    resultPreview: z.string().max(2_000).optional(),
   })
   .strict();
 

@@ -62,8 +62,20 @@ export function arbEventOfType(
       return fc.record({ at, by: str }).map((p) => ({ type, ...base, ...p }));
     case "ToolExecuted":
       return fc
-        .record({ at, gatewayReqId: str, resultDigest: str, latencyMs: fc.integer({ min: 0, max: 60_000 }) })
-        .map((p) => ({ type, ...base, ...p }));
+        .record({
+          at,
+          gatewayReqId: str,
+          resultDigest: str,
+          latencyMs: fc.integer({ min: 0, max: 60_000 }),
+          // ticket 063: additive optional — property tests cover both shapes
+          resultPreview: fc.option(fc.string({ maxLength: 200 }), { nil: undefined }),
+        })
+        .map(({ resultPreview, ...p }) => ({
+          type,
+          ...base,
+          ...p,
+          ...(resultPreview !== undefined ? { resultPreview } : {}),
+        }));
     case "ToolFailed":
       return fc
         .record({ at, error: str, retryable: fc.boolean() })

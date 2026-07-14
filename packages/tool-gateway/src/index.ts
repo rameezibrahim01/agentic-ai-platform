@@ -1,4 +1,4 @@
-export { createToolGateway } from "./gateway.js";
+export { createToolGateway, RESULT_PREVIEW_CAP, resultPreviewOf } from "./gateway.js";
 export type {
   ExecutionContext,
   IntentOutcome,

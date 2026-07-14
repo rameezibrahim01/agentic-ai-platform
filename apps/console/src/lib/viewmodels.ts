@@ -41,6 +41,11 @@ export type RunTimeline =
     }
   | { ok: false; error: { code: "not_found" } | { code: "unreplayable"; reason: ReplayRejection } };
 
+function clip(text: string, max: number): string {
+  const points = Array.from(text);
+  return points.length > max ? `${points.slice(0, max - 1).join("")}…` : text;
+}
+
 function summarize(event: RunEvent): string {
   switch (event.type) {
     case "RunStarted":
@@ -62,7 +67,10 @@ function summarize(event: RunEvent): string {
     case "ApprovalDenied":
       return `denied by ${event.by}`;
     case "ToolExecuted":
-      return `tool executed (${event.latencyMs}ms, digest ${event.resultDigest})`;
+      // ticket 063: show WHAT it found (display-capped), digest stays visible
+      return `tool executed (${event.latencyMs}ms, digest ${event.resultDigest})${
+        event.resultPreview !== undefined ? ` → ${clip(event.resultPreview, 300)}` : ""
+      }`;
     case "ToolFailed":
       return `tool failed: ${event.error}`;
     case "BudgetExceeded":
