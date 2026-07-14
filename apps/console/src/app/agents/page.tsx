@@ -17,7 +17,8 @@ export default async function AgentsPage() {
   return (
     <main>
       <h2 style={{ fontSize: 16 }}>
-        agents · <Link href="/agents/new">create agent</Link> · <Link href="/runs">runs</Link> ·{" "}
+        agents · <Link href="/agents/new">create agent (or start from a template)</Link> ·{" "}
+        <Link href="/runs">runs</Link> ·{" "}
         <Link href="/approvals">approval inbox</Link> · <Link href="/costs">costs</Link> ·{" "}
         <Link href="/limits">limits</Link>
       </h2>
