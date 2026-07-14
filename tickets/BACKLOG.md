@@ -60,6 +60,14 @@ promote/rollback with the honest "unproven" marker (055), and the machine-checke
 + GETTING-STARTED.md (056). Deferred within the batch: per-tenant agent registries, operator
 cross-tenant launches, run cancel, eval authoring UI.
 
+## Batch 057–060 (the connector layer) — EXPANDED into ticket files (see tickets/057…060)
+Owner direction after the authoring layer ("what next to be implemented?"): agents that touch
+real department systems, the common denominator of every candidate market. File & spreadsheet
+connector with one governed write (057), email connector with a domain-allowlisted governed
+send (058), curated agent templates in the builder (059), and the department demo — drill +
+GETTING-STARTED part 2 (060). Deferred within the batch: PDF/XLSX extraction, OAuth
+mailboxes, attachments, live-mail drill (HUMAN row), per-tenant connector roots.
+
 ## What remains after the authoring layer — needs things only humans can provide
 - **Human-owned drill rows** (docs/drills/phase-{1..4}.md): design-partner usefulness
   sign-off, invoice reconciliation, the partner's REAL write, external red-team review,
