@@ -1,5 +1,11 @@
 {
-  "tools": ["notes.append@v1"],
+  "tools": [
+    "notes.append@v1",
+    "docs.list@v1",
+    "docs.read@v1",
+    "sheet.read@v1",
+    "sheet.append@v1"
+  ],
   "grants": [
     {
       "agent": "demo-agent@v1",
@@ -11,9 +17,19 @@
     {
       "agent": "walkthrough-agent@v1",
       "tools": [{ "name": "notes.append", "version": "v1" }]
+    },
+    {
+      "agent": "invoice-checker@v1",
+      "tools": [
+        { "name": "docs.list", "version": "v1" },
+        { "name": "docs.read", "version": "v1" },
+        { "name": "sheet.read", "version": "v1" },
+        { "name": "sheet.append", "version": "v1" }
+      ]
     }
   ],
   "egressAllowlist": [],
+  "fileTools": { "docsDir": "/data/docs", "dataDir": "/data/sheets" },
   "mcpServers": [
     {
       "name": "reference-memo",
