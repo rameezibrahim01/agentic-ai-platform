@@ -96,23 +96,30 @@ if (databaseUrl) {
   describe("PostgresEventStore + aes-256-gcm (ticket 035)", () => {
     let handle: PostgresStoreHandle;
     beforeAll(async () => {
-      handle = await createPostgresEventStore(databaseUrl, makeEncryptedEventCodec(KEY));
+      // own schema: this suite and postgres.test.ts run in PARALLEL vitest
+      // workers — sharing public.run_events was a latent race (surfaced
+      // when new test files reshuffled the schedule)
+      handle = await createPostgresEventStore(
+        databaseUrl,
+        makeEncryptedEventCodec(KEY),
+        "enc_conformance",
+      );
     }, 60_000);
     afterAll(async () => {
       await handle?.close();
     });
 
     describeEventStoreContract("PostgresEventStore + aes-256-gcm", async () => {
-      await handle.pool.query("TRUNCATE run_events");
+      await handle.pool.query("TRUNCATE enc_conformance.run_events");
       return handle.store;
     });
 
     it("raw rows carry ciphertext only; a keyless reader gets typed unreadability", async () => {
-      await handle.pool.query("TRUNCATE run_events");
+      await handle.pool.query("TRUNCATE enc_conformance.run_events");
       await handle.store.append("run-dark", 0, makeEvents("run-dark", 0, 2));
 
       const raw = await handle.pool.query<{ event: unknown }>(
-        "SELECT event FROM run_events WHERE run_id = 'run-dark'",
+        "SELECT event FROM enc_conformance.run_events WHERE run_id = 'run-dark'",
       );
       for (const row of raw.rows) {
         const text = JSON.stringify(row.event);
@@ -123,7 +130,7 @@ if (databaseUrl) {
 
       // revocation: a plaintext (keyless) reader over the same pool
       const { PostgresEventStore } = await import("@platform/storage");
-      const keyless = new PostgresEventStore(handle.pool);
+      const keyless = new PostgresEventStore(handle.pool, undefined, "enc_conformance");
       expect((await keyless.listRuns()).map((r) => r.runId)).toEqual([]); // honestly absent
       await expect(keyless.load("run-dark")).rejects.toThrow(CorruptEventLogError);
     });
