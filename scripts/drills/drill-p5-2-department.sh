@@ -101,14 +101,21 @@ wait_for 60 2 "ApprovalRequested in the event log" bash -c \
   exit 1
 }
 # by the time the write paused, the sheet.read must have EXECUTED — the
-# read/write split asserted from the same event chain
+# read/write split asserted from the same event chain. ToolExecuted carries
+# no tool name (it references the intent via gatewayReqId), so assert by
+# ORDER: exactly one execution before the pause, and the first emitted
+# intent is the read.
 READS=$(psql_q "select count(*) from run_events where run_id='$RUN_ID' \
-  and event->>'type'='ToolExecuted' and event->>'tool' like 'sheet.read%'")
-[ "$READS" = "1" ] || {
-  echo "FAIL: expected sheet.read to have auto-executed before the pause (saw $READS)"
+  and event->>'type'='ToolExecuted' \
+  and seq < (select seq from run_events where run_id='$RUN_ID' and event->>'type'='ApprovalRequested')")
+FIRST_TOOL=$(psql_q "select event->>'tool' from run_events where run_id='$RUN_ID' \
+  and event->>'type'='ToolIntentEmitted' order by seq limit 1")
+if [ "$READS" != "1" ] || [ "$FIRST_TOOL" != "sheet.read@v1" ]; then
+  echo "FAIL: expected the sheet.read intent to have auto-executed before the pause"
+  echo "  executions before pause: $READS · first intent: $FIRST_TOOL"
   echo "event log so far: $(event_types "$RUN_ID")"
   exit 1
-}
+fi
 FINDINGS_BEFORE=$(docker compose exec -T worker sh -c 'cat /data/sheets/findings.csv 2>/dev/null || true' | wc -l)
 [ "$FINDINGS_BEFORE" = "0" ] || {
   echo "FAIL: findings row appeared BEFORE approval"
