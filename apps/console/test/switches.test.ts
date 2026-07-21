@@ -34,6 +34,45 @@ describe("flip logic (ticket 047)", () => {
   });
 });
 
+describe("per-run cancel (ticket 064)", () => {
+  it("flips a run switch; files written before the field parse and flip unchanged", () => {
+    // OFF has no `runs` key — the pre-064 shape
+    const on = flipSwitch(OFF, { scope: "run", runId: "run-7", tripped: true });
+    expect(on).toMatchObject({ ok: true, from: false, to: true });
+    expect(on.ok && on.config.killSwitches.runs).toEqual({ "run-7": true });
+    expect(on.ok && on.config.killSwitches.agents).toEqual({});
+    expect(flipSwitch(OFF, { scope: "run", runId: "", tripped: true }).ok).toBe(false);
+  });
+
+  it("the flip prunes entries for finished runs, keeps live and unknown ones", async () => {
+    const seeded = {
+      killSwitches: {
+        global: false,
+        agents: {},
+        runs: { "run-done": true, "run-live": true, "run-unknown": true },
+      },
+    };
+    const { deps, files, audit } = makeDeps();
+    files.set("/cfg/limits.config.json", JSON.stringify(seeded));
+    deps.runIsTerminal = async (runId) => {
+      if (runId === "run-done") return true;
+      if (runId === "run-live") return false;
+      throw new Error("status unreadable");
+    };
+    const result = await handleSwitchFlip(deps, { scope: "run", runId: "run-new", tripped: true });
+    expect(result.status).toBe(200);
+    expect(JSON.parse(files.get("/cfg/limits.config.json")!).killSwitches.runs).toEqual({
+      "run-new": true,
+      "run-live": true,
+      "run-unknown": true, // unreadable status — kept, best-effort doctrine
+    });
+    expect((await audit.list())[0]).toMatchObject({
+      action: "kill_switch_flip",
+      detail: { switch: "run:run-new", from: false, to: true },
+    });
+  });
+});
+
 describe("write-target matrix (ticket 047)", () => {
   const admin = { roles: ["platform_admin" as const] };
   it("untenanted: admin flips shared; tenant params refused; non-admin refused", () => {

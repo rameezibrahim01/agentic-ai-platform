@@ -18,9 +18,11 @@ export const consoleLimitsSchema = z
       .object({
         global: z.boolean().default(false),
         agents: z.record(z.boolean()).default({}),
+        // ticket 064, additive: per-RUN cancel
+        runs: z.record(z.boolean()).default({}),
       })
       .strict()
-      .default({ global: false, agents: {} }),
+      .default({ global: false, agents: {}, runs: {} }),
     budgetCaps: z
       .object({
         maxSteps: z.number().int().positive().optional(),
@@ -41,7 +43,8 @@ export type ConsoleLimits = z.infer<typeof consoleLimitsSchema>;
 
 export type FlipRequest =
   | { scope: "global"; tripped: boolean }
-  | { scope: "agent"; agent: string; tripped: boolean };
+  | { scope: "agent"; agent: string; tripped: boolean }
+  | { scope: "run"; runId: string; tripped: boolean };
 
 export type FlipResult =
   | { ok: true; config: ConsoleLimits; from: boolean; to: boolean }
@@ -58,6 +61,22 @@ export function flipSwitch(rawCurrent: unknown, flip: FlipRequest): FlipResult {
     return {
       ok: true,
       config: { ...config, killSwitches: { ...config.killSwitches, global: flip.tripped } },
+      from,
+      to: flip.tripped,
+    };
+  }
+  if (flip.scope === "run") {
+    if (!flip.runId) return { ok: false, error: "run scope requires a run id" };
+    const from = config.killSwitches.runs[flip.runId] === true;
+    return {
+      ok: true,
+      config: {
+        ...config,
+        killSwitches: {
+          ...config.killSwitches,
+          runs: { ...config.killSwitches.runs, [flip.runId]: flip.tripped },
+        },
+      },
       from,
       to: flip.tripped,
     };
@@ -123,6 +142,9 @@ export interface FlipDeps {
   writeFile(path: string, content: string): Promise<void>;
   audit: OpsAuditStore;
   nowMs(): number;
+  /** Ticket 064, best-effort housekeeping: true = this run is finished, its
+   * switch entry is dead weight. Absent (or throwing) = no pruning. */
+  runIsTerminal?(runId: string): Promise<boolean>;
 }
 
 export interface FlipResponse {
@@ -181,14 +203,40 @@ export async function handleSwitchFlip(
   const flipped = flipSwitch(current, request);
   if (!flipped.ok) return { status: 400, body: { error: flipped.error } };
 
-  await deps.writeFile(path, `${JSON.stringify(flipped.config, null, 2)}\n`);
+  // prune run entries for finished runs (ticket 064) — the file stays small
+  // without a background job. Best-effort: unknown/unreadable runs are kept.
+  let config = flipped.config;
+  if (request.scope === "run" && deps.runIsTerminal !== undefined) {
+    const kept: Record<string, boolean> = {};
+    for (const [runId, tripped] of Object.entries(config.killSwitches.runs)) {
+      if (runId === request.runId) {
+        kept[runId] = tripped;
+        continue;
+      }
+      let terminal = false;
+      try {
+        terminal = await deps.runIsTerminal(runId);
+      } catch {
+        // unreadable status — keep the entry
+      }
+      if (!terminal) kept[runId] = tripped;
+    }
+    config = { ...config, killSwitches: { ...config.killSwitches, runs: kept } };
+  }
+
+  await deps.writeFile(path, `${JSON.stringify(config, null, 2)}\n`);
   await deps.audit.record({
     at: deps.nowMs(),
     principal: deps.session.principal,
     action: "kill_switch_flip",
     scope: scopeLabel(admitted.target),
     detail: {
-      switch: request.scope === "global" ? "global" : `agent:${request.agent}`,
+      switch:
+        request.scope === "global"
+          ? "global"
+          : request.scope === "run"
+            ? `run:${request.runId}`
+            : `agent:${request.agent}`,
       from: flipped.from,
       to: flipped.to,
       file: path,

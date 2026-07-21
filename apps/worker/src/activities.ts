@@ -120,6 +120,8 @@ export interface ExecuteApprovedRequest {
 
 export interface CheckLimitsRequest {
   agent: string;
+  /** Ticket 064: the per-run switch needs to know WHICH run is asking. */
+  runId: string;
   /** "start" also enforces the rate limit; "step" is the kill-switch check. */
   phase: "start" | "step";
 }
@@ -182,7 +184,7 @@ export function createActivities({ store, gateway, tools, tracer, grants, limits
      */
     async checkLimits(request: CheckLimitsRequest): Promise<CheckLimitsResponse> {
       const config = limits === undefined ? NO_LIMITS : await limits.load();
-      const switchCheck = checkKillSwitch(config, request.agent);
+      const switchCheck = checkKillSwitch(config, request.agent, request.runId);
       if (switchCheck.tripped) {
         return { ok: false, reason: "KilledBySwitch", detail: switchCheck.detail };
       }
