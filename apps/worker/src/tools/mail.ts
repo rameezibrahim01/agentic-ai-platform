@@ -3,6 +3,15 @@ import nodemailer from "nodemailer";
 import { z } from "zod";
 import type { ToolContract } from "@platform/tool-registry";
 import type { ToolExecutor } from "@platform/tool-gateway";
+import {
+  capUtf8,
+  extractPdfTextFromBytes,
+  PDF_NO_TEXT_NOTE,
+  readXlsxFromBytes,
+  renderTableAsCsv,
+  SHEET_ROW_CAP,
+  TEXT_EXTENSIONS,
+} from "./extract.js";
 
 // Email connector (ticket 058). Reads are envelopes-and-capped-bodies only;
 // the ONE write — mail.send — goes through the full gateway (prod approval)
@@ -14,6 +23,19 @@ import type { ToolExecutor } from "@platform/tool-gateway";
 
 export const MAIL_SEARCH_CAP = 20;
 export const MAIL_BODY_CAP_BYTES = 64 * 1024;
+/** Ticket 065: fetched attachment bytes are capped BEFORE any parser runs. */
+export const MAIL_ATTACHMENT_CAP_BYTES = 4 * 1024 * 1024;
+/** …and the extracted text leaves with the file connector's read cap. */
+export const MAIL_ATTACHMENT_TEXT_CAP_BYTES = 256 * 1024;
+
+const attachmentMetaSchema = z
+  .object({
+    index: z.number().int().nonnegative(),
+    filename: z.string(),
+    mimeType: z.string(),
+    sizeBytes: z.number().int().nonnegative(),
+  })
+  .strict();
 
 export const mailSearchContract = (egress: string[]): ToolContract => ({
   name: "mail.search",
@@ -55,6 +77,35 @@ export const mailReadContract = (egress: string[]): ToolContract => ({
       text: z.string(),
       truncated: z.boolean(),
       provenance: z.literal("external"),
+      /** Ticket 065, additive: metadata only — content goes through
+       * mail.attachment@v1, never inline. */
+      attachments: z.array(attachmentMetaSchema).optional(),
+    })
+    .strict(),
+  egress,
+});
+
+export const mailAttachmentContract = (egress: string[]): ToolContract => ({
+  name: "mail.attachment",
+  version: "v1",
+  description:
+    "Extract one attachment's content (.pdf/.xlsx/text types) from a message in the configured mailbox.",
+  risk: "read",
+  input: z
+    .object({
+      uid: z.number().int().positive(),
+      index: z.number().int().nonnegative(),
+      mailbox: z.string().min(1).max(200).optional(),
+    })
+    .strict(),
+  output: z
+    .object({
+      filename: z.string(),
+      text: z.string(),
+      truncated: z.boolean(),
+      provenance: z.literal("external"),
+      /** Set for exactly one case — a parseable PDF with no text layer. */
+      note: z.string().optional(),
     })
     .strict(),
   egress,
@@ -83,10 +134,27 @@ export interface MailEnvelope {
   date: string;
 }
 
-/** Hermetic seam: tests inject fakes; production builds from the env URLs. */
+export interface MailAttachmentMeta {
+  index: number;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+}
+
+/** Hermetic seam: tests inject fakes; production builds from the env URLs.
+ * `attachments` on read and `fetchAttachment` are optional so pre-065 fakes
+ * stay valid — a mailbox without them simply has no attachment surface. */
 export interface MailboxClient {
   search(mailbox: string, query: string | undefined, limit: number): Promise<MailEnvelope[]>;
-  read(mailbox: string, uid: number): Promise<MailEnvelope & { text: string }>;
+  read(
+    mailbox: string,
+    uid: number,
+  ): Promise<MailEnvelope & { text: string; attachments?: MailAttachmentMeta[] }>;
+  fetchAttachment?(
+    mailbox: string,
+    uid: number,
+    index: number,
+  ): Promise<{ meta: MailAttachmentMeta; bytes: Buffer }>;
 }
 
 export interface MailSender {
@@ -104,6 +172,41 @@ export function scrubbed<T>(secret: string, run: () => Promise<T>): Promise<T> {
 
 export function hostOf(url: string): string {
   return new URL(url).hostname;
+}
+
+interface BodyStructureNode {
+  part?: string;
+  type?: string;
+  disposition?: string;
+  size?: number;
+  parameters?: { name?: string };
+  dispositionParameters?: { filename?: string };
+  childNodes?: BodyStructureNode[];
+}
+
+/** Attachment parts in a stable order: disposition says attachment, or a
+ * filename is declared — the main text body never qualifies. */
+export function collectAttachmentParts(node: BodyStructureNode): BodyStructureNode[] {
+  const out: BodyStructureNode[] = [];
+  const visit = (current: BodyStructureNode): void => {
+    const filename = current.dispositionParameters?.filename ?? current.parameters?.name;
+    if (current.disposition === "attachment" || (filename !== undefined && current.part !== undefined)) {
+      out.push(current);
+    } else {
+      for (const child of current.childNodes ?? []) visit(child);
+    }
+  };
+  for (const child of node.childNodes ?? [node]) visit(child);
+  return out;
+}
+
+function metaOf(node: BodyStructureNode, index: number): MailAttachmentMeta {
+  return {
+    index,
+    filename: node.dispositionParameters?.filename ?? node.parameters?.name ?? "(unnamed)",
+    mimeType: node.type ?? "application/octet-stream",
+    sizeBytes: node.size ?? 0,
+  };
 }
 
 export function makeImapMailbox(imapUrl: string): MailboxClient {
@@ -161,20 +264,58 @@ export function makeImapMailbox(imapUrl: string): MailboxClient {
           try {
             const message = await client.fetchOne(
               String(uid),
-              { envelope: true, bodyParts: ["text"] },
+              { envelope: true, bodyParts: ["text"], bodyStructure: true },
               { uid: true },
             );
             if (!message || message.envelope === undefined) {
               throw new Error(`mail.read: no message with uid ${uid} in ${mailbox}`);
             }
             const body = message.bodyParts?.get("text")?.toString("utf8") ?? "";
+            const parts = message.bodyStructure
+              ? collectAttachmentParts(message.bodyStructure as BodyStructureNode)
+              : [];
             return {
               uid,
               from: message.envelope.from?.[0]?.address ?? "(unknown)",
               subject: message.envelope.subject ?? "(no subject)",
               date: message.envelope.date?.toISOString() ?? "",
               text: body,
+              ...(parts.length > 0 ? { attachments: parts.map(metaOf) } : {}),
             };
+          } finally {
+            lock.release();
+          }
+        } finally {
+          await client.logout().catch(() => {});
+        }
+      }),
+    fetchAttachment: (mailbox, uid, index) =>
+      scrubbed(imapUrl, async () => {
+        const client = await open();
+        try {
+          const lock = await client.getMailboxLock(mailbox);
+          try {
+            const message = await client.fetchOne(
+              String(uid),
+              { bodyStructure: true },
+              { uid: true },
+            );
+            if (!message || message.bodyStructure === undefined) {
+              throw new Error(`mail.attachment: no message with uid ${uid} in ${mailbox}`);
+            }
+            const parts = collectAttachmentParts(message.bodyStructure as BodyStructureNode);
+            const part = parts[index];
+            if (part?.part === undefined) {
+              throw new Error(
+                `mail.attachment: message ${uid} has no attachment at index ${index} (found ${parts.length})`,
+              );
+            }
+            const download = await client.download(String(uid), part.part, { uid: true });
+            const chunks: Buffer[] = [];
+            for await (const chunk of download.content) {
+              chunks.push(chunk as Buffer);
+            }
+            return { meta: metaOf(part, index), bytes: Buffer.concat(chunks) };
           } finally {
             lock.release();
           }
@@ -226,11 +367,7 @@ export function mailReadExecutor(mailbox: MailboxClient): ToolExecutor {
     async execute(args) {
       const { uid, mailbox: box } = args as { uid: number; mailbox?: string };
       const message = await mailbox.read(box ?? "INBOX", uid);
-      const bytes = Buffer.byteLength(message.text, "utf8");
-      const truncated = bytes > MAIL_BODY_CAP_BYTES;
-      const text = truncated
-        ? Buffer.from(message.text, "utf8").subarray(0, MAIL_BODY_CAP_BYTES).toString("utf8")
-        : message.text;
+      const { text, truncated } = capUtf8(message.text, MAIL_BODY_CAP_BYTES);
       return {
         uid: message.uid,
         from: message.from,
@@ -239,6 +376,57 @@ export function mailReadExecutor(mailbox: MailboxClient): ToolExecutor {
         text,
         truncated,
         provenance: "external" as const,
+        ...(message.attachments !== undefined && message.attachments.length > 0
+          ? { attachments: message.attachments }
+          : {}),
+      };
+    },
+  };
+}
+
+/** Ticket 065: one attachment through the SAME extraction pipeline, caps,
+ * and refusal shapes as the file connector — deny-by-default on anything
+ * that is not a PDF, workbook, or plain-text type. */
+export function mailAttachmentExecutor(mailbox: MailboxClient): ToolExecutor {
+  return {
+    ref: { name: "mail.attachment", version: "v1" },
+    async execute(args) {
+      const { uid, index, mailbox: box } = args as { uid: number; index: number; mailbox?: string };
+      if (mailbox.fetchAttachment === undefined) {
+        throw new Error("mail.attachment refused: this mailbox client cannot fetch attachments");
+      }
+      const { meta, bytes } = await mailbox.fetchAttachment(box ?? "INBOX", uid, index);
+      if (bytes.length > MAIL_ATTACHMENT_CAP_BYTES) {
+        throw new Error(
+          `mail.attachment refused: attachment is ${bytes.length} bytes; the fetch cap is ${MAIL_ATTACHMENT_CAP_BYTES}`,
+        );
+      }
+      const filename = meta.filename;
+      const extension = filename.slice(filename.lastIndexOf(".")).toLowerCase();
+
+      let extracted: string;
+      let note: string | undefined;
+      if (extension === ".pdf") {
+        extracted = await extractPdfTextFromBytes(bytes, "mail.attachment");
+        if (extracted === "") note = PDF_NO_TEXT_NOTE;
+      } else if (extension === ".xlsx") {
+        const table = await readXlsxFromBytes(bytes, SHEET_ROW_CAP, "mail.attachment");
+        extracted = renderTableAsCsv(table);
+      } else if (TEXT_EXTENSIONS.includes(extension)) {
+        extracted = bytes.toString("utf8");
+      } else {
+        throw new Error(
+          `mail.attachment refused: cannot extract ${extension || "extension-less"} attachments (pdf/xlsx/${TEXT_EXTENSIONS.join("/")} only)`,
+        );
+      }
+
+      const { text, truncated } = capUtf8(extracted, MAIL_ATTACHMENT_TEXT_CAP_BYTES);
+      return {
+        filename,
+        text,
+        truncated,
+        provenance: "external" as const,
+        ...(note !== undefined ? { note } : {}),
       };
     },
   };

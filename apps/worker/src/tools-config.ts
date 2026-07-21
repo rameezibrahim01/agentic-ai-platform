@@ -16,6 +16,8 @@ import {
 } from "./tools/files.js";
 import {
   hostOf,
+  mailAttachmentContract,
+  mailAttachmentExecutor,
   mailReadContract,
   mailReadExecutor,
   mailSearchContract,
@@ -268,7 +270,12 @@ export async function buildTools(
     }
     // mail connector (ticket 058): env var NAMES in config, URLs stay
     // secrets; reads need IMAP, mail.send additionally needs SMTP
-    if (ref === "mail.search@v1" || ref === "mail.read@v1" || ref === "mail.send@v1") {
+    if (
+      ref === "mail.search@v1" ||
+      ref === "mail.read@v1" ||
+      ref === "mail.attachment@v1" ||
+      ref === "mail.send@v1"
+    ) {
       if (config.mailTools === undefined) {
         return failBoot(`${ref} requires the mailTools config`);
       }
@@ -299,6 +306,9 @@ export async function buildTools(
         if (ref === "mail.search@v1") {
           registry.register(mailSearchContract(egress));
           executors.push(mailSearchExecutor(mailbox));
+        } else if (ref === "mail.attachment@v1") {
+          registry.register(mailAttachmentContract(egress));
+          executors.push(mailAttachmentExecutor(mailbox));
         } else {
           registry.register(mailReadContract(egress));
           executors.push(mailReadExecutor(mailbox));

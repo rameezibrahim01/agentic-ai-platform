@@ -1,16 +1,26 @@
+import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_RULES } from "@platform/policy";
 import { createToolGateway } from "@platform/tool-gateway";
 import {
+  MAIL_ATTACHMENT_CAP_BYTES,
   MAIL_BODY_CAP_BYTES,
   MAIL_SEARCH_CAP,
+  mailAttachmentExecutor,
   mailReadExecutor,
   mailSearchExecutor,
   mailSendExecutor,
   recipientRefusal,
   scrubbed,
 } from "../src/tools/mail.js";
-import type { MailboxClient, MailEnvelope, MailSender } from "../src/tools/mail.js";
+import type {
+  MailAttachmentMeta,
+  MailboxClient,
+  MailEnvelope,
+  MailSender,
+} from "../src/tools/mail.js";
+import { PDF_NO_TEXT_NOTE } from "../src/tools/files.js";
 import { buildTools } from "../src/tools-config.js";
 
 // Ticket 058: the email connector, hermetic. Reads are envelopes and capped
@@ -89,6 +99,122 @@ describe("mail read tools (ticket 058)", () => {
   });
 });
 
+describe("mail attachments (ticket 065)", () => {
+  const fixturesDir = fileURLToPath(new URL("./fixtures", import.meta.url));
+
+  function attachingMailbox(
+    files: { filename: string; bytes: Buffer }[],
+  ): MailboxClient {
+    const metas: MailAttachmentMeta[] = files.map((file, index) => ({
+      index,
+      filename: file.filename,
+      mimeType: "application/octet-stream",
+      sizeBytes: file.bytes.length,
+    }));
+    return {
+      async search() {
+        return [];
+      },
+      async read(_mailbox, uid) {
+        return {
+          uid,
+          from: "vendor@dune.example",
+          subject: "invoices attached",
+          date: "2026-06-01T00:00:00.000Z",
+          text: "see attached",
+          ...(metas.length > 0 ? { attachments: metas } : {}),
+        };
+      },
+      async fetchAttachment(_mailbox, _uid, index) {
+        const file = files[index];
+        if (!file) throw new Error(`connect failed for ${SECRET_URL}`);
+        return { meta: metas[index]!, bytes: file.bytes };
+      },
+    };
+  }
+
+  it("mail.read lists attachment metadata; a mailbox without attachments keeps the old shape", async () => {
+    const withAttachment = attachingMailbox([
+      { filename: "invoice.pdf", bytes: Buffer.from("stub") },
+    ]);
+    const read = (await mailReadExecutor(withAttachment).execute({ uid: 7 }, {} as never)) as {
+      attachments?: MailAttachmentMeta[];
+    };
+    expect(read.attachments).toEqual([
+      { index: 0, filename: "invoice.pdf", mimeType: "application/octet-stream", sizeBytes: 4 },
+    ]);
+    // the 058-era fake has no attachment surface at all — output unchanged
+    const old = (await mailReadExecutor(fakeMailbox(MESSAGES)).execute({ uid: 7 }, {} as never)) as
+      Record<string, unknown>;
+    expect("attachments" in old).toBe(false);
+  });
+
+  it("extracts a PDF attachment with the file connector's extractor; textless PDFs carry the note", async () => {
+    const pdf = await readFile(`${fixturesDir}/fixture-061.pdf`);
+    const notext = await readFile(`${fixturesDir}/fixture-061-notext.pdf`);
+    const executor = mailAttachmentExecutor(
+      attachingMailbox([
+        { filename: "invoice.pdf", bytes: pdf },
+        { filename: "scan.pdf", bytes: notext },
+      ]),
+    );
+    const extracted = (await executor.execute({ uid: 7, index: 0 }, {} as never)) as {
+      filename: string;
+      text: string;
+      provenance: string;
+    };
+    expect(extracted.filename).toBe("invoice.pdf");
+    expect(extracted.text).toContain("PLATFORM PDF FIXTURE 061");
+    expect(extracted.provenance).toBe("external");
+
+    const scanned = (await executor.execute({ uid: 7, index: 1 }, {} as never)) as {
+      text: string;
+      note?: string;
+    };
+    expect(scanned.text).toBe("");
+    expect(scanned.note).toBe(PDF_NO_TEXT_NOTE);
+  });
+
+  it("extracts an .xlsx attachment as escaped CSV text — formula results included", async () => {
+    const xlsx = await readFile(`${fixturesDir}/fixture-062.xlsx`);
+    const executor = mailAttachmentExecutor(
+      attachingMailbox([{ filename: "register.xlsx", bytes: xlsx }]),
+    );
+    const result = (await executor.execute({ uid: 7, index: 0 }, {} as never)) as { text: string };
+    const lines = result.text.split("\n");
+    expect(lines[0]).toContain("invoice");
+    expect(result.text).toContain("INV-2001");
+    expect(result.text).toContain("1575.525"); // the formula's cached RESULT
+  });
+
+  it("text attachments decode as-is; unknown types, oversized payloads, and missing indexes refuse typed", async () => {
+    const executor = mailAttachmentExecutor(
+      attachingMailbox([
+        { filename: "memo.txt", bytes: Buffer.from("plain memo") },
+        { filename: "archive.zip", bytes: Buffer.from("PK") },
+        { filename: "huge.pdf", bytes: Buffer.alloc(MAIL_ATTACHMENT_CAP_BYTES + 1) },
+      ]),
+    );
+    const text = (await executor.execute({ uid: 7, index: 0 }, {} as never)) as { text: string };
+    expect(text.text).toBe("plain memo");
+    await expect(executor.execute({ uid: 7, index: 1 }, {} as never)).rejects.toThrow(
+      /cannot extract \.zip/,
+    );
+    await expect(executor.execute({ uid: 7, index: 2 }, {} as never)).rejects.toThrow(/fetch cap/);
+    await expect(executor.execute({ uid: 7, index: 9 }, {} as never)).rejects.toThrow(
+      /connect failed/,
+    );
+  });
+
+  it("the connection URL never survives the new failure paths either", async () => {
+    await expect(
+      scrubbed(SECRET_URL, async () => {
+        throw new Error(`mail.attachment: download failed via ${SECRET_URL}`);
+      }),
+    ).rejects.not.toThrow(/hunter2/);
+  });
+});
+
 describe("mail.send (ticket 058)", () => {
   it("deny by default: no allowlist refuses everything; wrong domain refused; right domain sends once", async () => {
     expect(recipientRefusal("a@corp.example", undefined)).toContain("denied by default");
@@ -108,7 +234,7 @@ describe("mail.send (ticket 058)", () => {
 
 describe("boot wiring + governance (ticket 058)", () => {
   const config = (overrides: Record<string, unknown> = {}) => ({
-    tools: ["mail.search@v1", "mail.read@v1", "mail.send@v1"],
+    tools: ["mail.search@v1", "mail.read@v1", "mail.attachment@v1", "mail.send@v1"],
     grants: [
       {
         agent: "mailer@v1",
@@ -133,11 +259,12 @@ describe("boot wiring + governance (ticket 058)", () => {
     mailClients: { mailbox: fakeMailbox(MESSAGES), sender: fakeSender() },
   });
 
-  it("boots the three tools; refuses missing config, named-but-empty envs, and send without smtpUrlEnv", async () => {
+  it("boots the four tools; refuses missing config, named-but-empty envs, and send without smtpUrlEnv", async () => {
     const built = await buildTools(config(), deps());
     expect(built.ok).toBe(true);
     if (built.ok) {
       expect(built.tools.registry.describeAll().map((t) => t.name).sort()).toEqual([
+        "mail.attachment",
         "mail.read",
         "mail.search",
         "mail.send",
