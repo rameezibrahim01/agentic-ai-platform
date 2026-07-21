@@ -24,9 +24,12 @@ export const limitsConfigSchema = z
       .object({
         global: z.boolean().default(false),
         agents: z.record(z.boolean()).default({}),
+        // ticket 064, additive: per-RUN cancel — the surgical switch. Files
+        // written before this field parse unchanged (default {}).
+        runs: z.record(z.boolean()).default({}),
       })
       .strict()
-      .default({ global: false, agents: {} }),
+      .default({ global: false, agents: {}, runs: {} }),
     budgetCaps: budgetSchema.optional(),
     rateLimits: z
       .object({ runsPerHourPerAgent: z.number().int().positive().optional() })
@@ -37,7 +40,9 @@ export const limitsConfigSchema = z
 
 export type LimitsConfig = z.infer<typeof limitsConfigSchema>;
 
-export const NO_LIMITS: LimitsConfig = { killSwitches: { global: false, agents: {} } };
+export const NO_LIMITS: LimitsConfig = {
+  killSwitches: { global: false, agents: {}, runs: {} },
+};
 
 /** File loader with an mtime cache: cheap per-step checks, instant flips. */
 export function makeLimitsLoader(configPath: string | undefined) {
@@ -98,12 +103,19 @@ export type SwitchCheck =
   | { tripped: false }
   | { tripped: true; detail: string };
 
-export function checkKillSwitch(config: LimitsConfig, agent: string): SwitchCheck {
+export function checkKillSwitch(
+  config: LimitsConfig,
+  agent: string,
+  runId?: string,
+): SwitchCheck {
   if (config.killSwitches.global) {
     return { tripped: true, detail: "global kill switch is on" };
   }
   if (config.killSwitches.agents[agent] === true) {
     return { tripped: true, detail: `kill switch is on for ${agent}` };
+  }
+  if (runId !== undefined && config.killSwitches.runs[runId] === true) {
+    return { tripped: true, detail: `run ${runId} was cancelled by an operator` };
   }
   return { tripped: false };
 }

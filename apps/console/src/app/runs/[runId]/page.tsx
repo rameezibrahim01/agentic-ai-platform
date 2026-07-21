@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { can } from "@platform/auth";
 import { requireSession } from "../../../lib/auth";
 import { getStore } from "../../../lib/store";
 import { baseName } from "../../../lib/agents";
@@ -10,11 +11,14 @@ const cell: React.CSSProperties = { border: "1px solid #ccc", padding: "4px 8px"
 
 export default async function RunTimelinePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ runId: string }>;
+  searchParams: Promise<{ error?: string }>;
 }) {
   const session = await requireSession();
   const { runId } = await params;
+  const { error } = await searchParams;
   const store = await getStore(session.tenant);
   if (store === null) {
     return (
@@ -42,9 +46,14 @@ export default async function RunTimelinePage({
     );
   }
 
+  const cancellable =
+    (timeline.status === "running" || timeline.status === "awaiting_approval") &&
+    can(session.roles, "manage_platform");
+
   return (
     <main>
       <h2 style={{ fontSize: 16 }}>run {timeline.runId}</h2>
+      {error !== undefined && <p style={{ color: "#b00" }}>{error}</p>}
       <p>
         status: <b>{timeline.status}</b> · outcome: {timeline.outcome} · agent:{" "}
         <Link href={`/agents/${encodeURIComponent(baseName(timeline.agent))}`}>
@@ -57,6 +66,19 @@ export default async function RunTimelinePage({
         totals — steps: {timeline.totals.steps} · tokens: {timeline.totals.tokensIn} in /{" "}
         {timeline.totals.tokensOut} out · cost: {formatUsd(timeline.totals.costUsd)}
       </p>
+      {cancellable && (
+        <form
+          method="post"
+          action={`/api/runs/${encodeURIComponent(timeline.runId)}/cancel`}
+          style={{ marginBottom: 8 }}
+        >
+          <button type="submit">cancel run</button>{" "}
+          <span style={{ color: "#666" }}>
+            stops at the next step, audited; a run awaiting approval ends when the approval is
+            decided
+          </span>
+        </form>
+      )}
       <table style={{ borderCollapse: "collapse" }}>
         <thead>
           <tr>

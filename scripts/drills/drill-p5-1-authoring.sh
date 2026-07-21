@@ -18,13 +18,17 @@ cd "$(dirname "$0")/../../deploy"
 export POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-drill-p5-only}"
 
 # the builder writes THROUGH the bind mount into this repo file — keep the
-# working tree clean no matter how the drill exits
+# working tree clean no matter how the drill exits. Same for the limits file:
+# the cancel beat (064) flips a per-run switch through the console's mount.
 AGENTS_BACKUP="$(mktemp)"
+LIMITS_BACKUP="$(mktemp)"
 cp agents.config.json "$AGENTS_BACKUP"
+cp limits.config.json "$LIMITS_BACKUP"
 cleanup() {
   docker compose down -v --remove-orphans >/dev/null 2>&1 || true
   cp "$AGENTS_BACKUP" agents.config.json
-  rm -f "$AGENTS_BACKUP" "${JAR:-}"
+  cp "$LIMITS_BACKUP" limits.config.json
+  rm -f "$AGENTS_BACKUP" "$LIMITS_BACKUP" "${JAR:-}"
 }
 trap cleanup EXIT
 
@@ -208,5 +212,65 @@ psql_q "select action from ops_audit order by at" | grep -q "^agent_version_crea
   echo "FAIL: ops_audit has no agent_version_created row"
   exit 1
 }
+echo "== drill p5-1: CANCEL a run from the console (ticket 064) =="
+# a second run pauses at its write; the operator cancels it; the approval is
+# then granted — and the engine still kills the run at its next step, typed.
+# The lever, not the model, decides.
+CANCEL_RUN_ID="web-cancelme-$(date -u +%s)"
+STATUS=$(curl -s -o /dev/null -w "%{http_code}" -b "$JAR" -X POST http://localhost:3000/api/runs \
+  -d "agent=walkthrough-agent" -d "runId=${CANCEL_RUN_ID}" \
+  -d "input=this run will be cancelled" -d "inputMode=text")
+[ "$STATUS" = "303" ] || {
+  echo "FAIL: cancel-target launch returned HTTP $STATUS"
+  exit 1
+}
+wait_for 60 2 "cancel-target run to pause for approval" bash -c \
+  "docker compose exec -T postgres psql -U platform -d platform -Atc \
+   \"select count(*) from run_events where run_id='$CANCEL_RUN_ID' and event->>'type'='ApprovalRequested'\" | grep -q '^1$'" || {
+  echo "event log so far: $(event_types "$CANCEL_RUN_ID")"
+  exit 1
+}
+STATUS=$(curl -s -o /dev/null -w "%{http_code}" -b "$JAR" -X POST \
+  "http://localhost:3000/api/runs/${CANCEL_RUN_ID}/cancel")
+[ "$STATUS" = "303" ] || {
+  echo "FAIL: cancel returned HTTP $STATUS"
+  exit 1
+}
+curl -sf -b "$JAR" -X POST "http://localhost:3000/api/approvals/${CANCEL_RUN_ID}" \
+  -d "decision=approve" -d "comment=approved after cancel — the switch must still win" >/dev/null
+wait_for 60 2 "cancelled run to end in RunFailed" bash -c \
+  "docker compose exec -T postgres psql -U platform -d platform -Atc \
+   \"select count(*) from run_events where run_id='$CANCEL_RUN_ID' and event->>'type'='RunFailed'\" | grep -q '^1$'" || {
+  echo "event log so far: $(event_types "$CANCEL_RUN_ID")"
+  exit 1
+}
+CANCEL_CHAIN="$(event_types "$CANCEL_RUN_ID")"
+case "$CANCEL_CHAIN" in
+  *"ApprovalGranted,BudgetExceeded,RunFailed") : ;;
+  *)
+    echo "FAIL: cancelled run's chain does not end approval → engine kill → failed"
+    echo "  actual: $CANCEL_CHAIN"
+    exit 1
+    ;;
+esac
+psql_q "select event->>'reason' from run_events where run_id='$CANCEL_RUN_ID' and event->>'type'='RunFailed'" \
+  | grep -q "^KilledBySwitch$" || {
+  echo "FAIL: cancelled run's failure reason is not KilledBySwitch"
+  exit 1
+}
+# the write that was pending when the run was cancelled must never have landed
+NOTES_FINAL=$(docker compose exec -T worker sh -c 'cat /data/notes/notes.log 2>/dev/null || true' \
+  | grep -c "user:dev-admin" || true)
+[ "$NOTES_FINAL" = "1" ] || {
+  echo "FAIL: the cancelled run's write landed anyway (notes: $NOTES_FINAL)"
+  exit 1
+}
+psql_q "select detail->>'switch' from ops_audit where action='kill_switch_flip'" \
+  | grep -q "^run:${CANCEL_RUN_ID}$" || {
+  echo "FAIL: ops_audit has no kill_switch_flip row for run:${CANCEL_RUN_ID}"
+  exit 1
+}
+echo "PASS: cancel stopped the run at its next step, audited, write never landed"
+
 echo "PASS: create → promote(unproven) → run → approve → completed, all machine-checked"
 echo "DRILL P5-1 (authoring walkthrough): PASS"

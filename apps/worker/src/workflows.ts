@@ -138,7 +138,7 @@ export async function agentRun(input: AgentRunInput): Promise<AgentRunResult> {
   // Operator limits at start (ticket 033): kill switch + rate limit, audited
   // as an engine-terminated run; platform caps CEILING the requested budget —
   // the request does not negotiate.
-  const startLimits = await checkLimits({ agent: input.agent, phase: "start" });
+  const startLimits = await checkLimits({ agent: input.agent, runId, phase: "start" });
   if (!startLimits.ok) {
     const failed = await recordBudgetFailure({
       runId,
@@ -183,7 +183,7 @@ export async function agentRun(input: AgentRunInput): Promise<AgentRunResult> {
     }
 
     // a flipped kill switch stops in-flight runs at their next step
-    const stepLimits = await checkLimits({ agent: input.agent, phase: "step" });
+    const stepLimits = await checkLimits({ agent: input.agent, runId, phase: "step" });
     if (!stepLimits.ok) {
       const failed = await recordBudgetFailure({
         runId,
@@ -319,6 +319,24 @@ export async function agentRun(input: AgentRunInput): Promise<AgentRunResult> {
       version = recorded.version;
 
       if (decision.granted) {
+        // ticket 064: a switch tripped while the run was paused (a per-run
+        // cancel, or any wider kill) beats the approval — the lever wins
+        // over the inbox, and the approved write never executes.
+        const resumeLimits = await checkLimits({ agent: input.agent, runId, phase: "step" });
+        if (!resumeLimits.ok) {
+          const failed = await recordBudgetFailure({
+            runId,
+            expectedVersion: version,
+            reason: resumeLimits.reason,
+            detail: resumeLimits.detail,
+          });
+          return {
+            outcome: "budget_exceeded",
+            reason: resumeLimits.reason,
+            version: failed.version,
+            steps: usage.stepCount,
+          };
+        }
         const executed = await executeApprovedIntent({
           runId,
           expectedVersion: version,

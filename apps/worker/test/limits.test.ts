@@ -29,7 +29,7 @@ describe("operator limits (ticket 033)", () => {
   it("config schema: strict, defaults sane, malformed refused", () => {
     expect(limitsConfigSchema.safeParse({}).success).toBe(true);
     const parsed = limitsConfigSchema.parse({});
-    expect(parsed.killSwitches).toEqual({ global: false, agents: {} });
+    expect(parsed.killSwitches).toEqual({ global: false, agents: {}, runs: {} });
     expect(limitsConfigSchema.safeParse({ surprise: true }).success).toBe(false);
     expect(
       limitsConfigSchema.safeParse({ rateLimits: { runsPerHourPerAgent: 0 } }).success,
@@ -38,11 +38,27 @@ describe("operator limits (ticket 033)", () => {
 
   it("kill switch: global beats everything; per-agent hits only that agent", () => {
     expect(checkKillSwitch(NO_LIMITS, "a@v1").tripped).toBe(false);
-    const perAgent = { killSwitches: { global: false, agents: { "a@v1": true } } };
+    const perAgent = { killSwitches: { global: false, agents: { "a@v1": true }, runs: {} } };
     expect(checkKillSwitch(perAgent, "a@v1").tripped).toBe(true);
     expect(checkKillSwitch(perAgent, "b@v1").tripped).toBe(false);
-    const global = { killSwitches: { global: true, agents: {} } };
+    const global = { killSwitches: { global: true, agents: {}, runs: {} } };
     expect(checkKillSwitch(global, "anything@v9").tripped).toBe(true);
+  });
+
+  it("per-run cancel hits only that run; pre-064 files parse unchanged (ticket 064)", () => {
+    // a limits file written before the `runs` field existed
+    const old = limitsConfigSchema.parse({ killSwitches: { global: false, agents: {} } });
+    expect(old.killSwitches.runs).toEqual({});
+    expect(checkKillSwitch(old, "a@v1", "run-1").tripped).toBe(false);
+
+    const cancelled = limitsConfigSchema.parse({
+      killSwitches: { global: false, agents: {}, runs: { "run-1": true } },
+    });
+    const hit = checkKillSwitch(cancelled, "a@v1", "run-1");
+    expect(hit).toEqual({ tripped: true, detail: "run run-1 was cancelled by an operator" });
+    expect(checkKillSwitch(cancelled, "a@v1", "run-2").tripped).toBe(false);
+    // the same config without a runId (e.g. older caller) trips nothing
+    expect(checkKillSwitch(cancelled, "a@v1").tripped).toBe(false);
   });
 
   it("property: capBudget is field-wise min — a run never exceeds the platform cap", () => {

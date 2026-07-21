@@ -2,12 +2,14 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { setTimeout as sleep } from "node:timers/promises";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { TestWorkflowEnvironment } from "@temporalio/testing";
 import { Worker } from "@temporalio/worker";
+import type { InMemoryEventStore } from "@platform/storage";
 import { fakeIntent, fakeMessage } from "@platform/model-gateway";
 import type { Activities } from "../src/activities.js";
-import { startAgentRun } from "../src/client.js";
+import { sendApprovalDecision, startAgentRun } from "../src/client.js";
 import { makeWorld, runInput, TEST_AGENT } from "./helpers.js";
 
 const workflowsPath = fileURLToPath(new URL("../src/workflows.ts", import.meta.url));
@@ -98,6 +100,82 @@ describe("kill switches, engine edition (ticket 033)", () => {
       expect(types.slice(-2)).toEqual(["BudgetExceeded", "RunFailed"]);
       const exceeded = events.find((e) => e.type === "BudgetExceeded");
       expect(exceeded).toMatchObject({ reason: "KilledBySwitch" });
+    },
+    120_000,
+  );
+
+  it(
+    "cancel beats approval (ticket 064): a per-run switch tripped during the pause kills the run before the approved write",
+    async (ctx) => {
+      if (!env) return ctx.skip();
+      const runId = "run-cancelled-while-paused";
+      const taskQueue = "tq-cancel-paused";
+      const limitsPath = join(dir, "cancel.json");
+      await writeFile(limitsPath, JSON.stringify(OFF));
+
+      // prod + DEFAULT_RULES: the write intent pauses for approval
+      const WRITE_SCRIPT = [
+        {
+          kind: "respond" as const,
+          result: fakeIntent({ tool: "ticket.update@v1", args: { id: 7, status: "solved" } }),
+        },
+        { kind: "respond" as const, result: fakeMessage("never reached") },
+      ];
+      const { store, activities, writeExecuted } = makeWorld(WRITE_SCRIPT, {
+        env: "prod",
+        limitsPath,
+      });
+      const worker = await Worker.create({
+        connection: env.nativeConnection,
+        taskQueue,
+        workflowsPath,
+        activities,
+      });
+
+      const waitForVersion = async (s: InMemoryEventStore, id: string, version: number) => {
+        for (let i = 0; i < 400; i++) {
+          const loaded = await s.load(id);
+          if (loaded !== null && loaded.version >= version) return;
+          await sleep(25);
+        }
+        throw new Error(`run ${id} never reached version ${version}`);
+      };
+
+      const result = await worker.runUntil(async () => {
+        const handle = await startAgentRun(
+          env!.client,
+          { ...runInput(runId), approvalTtlMs: 60_000 },
+          { taskQueue },
+        );
+        await waitForVersion(store, runId, 5); // …ApprovalRequested landed
+        // the operator cancels THIS run while it waits in the inbox
+        await writeFile(
+          limitsPath,
+          JSON.stringify({ killSwitches: { global: false, agents: {}, runs: { [runId]: true } } }),
+        );
+        // …and someone approves anyway. The lever must win.
+        await sendApprovalDecision(env!.client, runId, { granted: true, by: "user:late" });
+        return handle.result();
+      });
+
+      expect(result).toMatchObject({ outcome: "budget_exceeded", reason: "KilledBySwitch" });
+      expect(writeExecuted).toHaveLength(0); // the approved write never executed
+      const events = (await store.load(runId))!.events;
+      const types = events.map((e) => e.type);
+      expect(types).toEqual([
+        "RunStarted",
+        "ModelCalled",
+        "ToolIntentEmitted",
+        "PolicyEvaluated",
+        "ApprovalRequested",
+        "ApprovalGranted",
+        "BudgetExceeded",
+        "RunFailed",
+      ]);
+      expect(events.find((e) => e.type === "BudgetExceeded")).toMatchObject({
+        reason: "KilledBySwitch",
+        detail: `run ${runId} was cancelled by an operator`,
+      });
     },
     120_000,
   );
