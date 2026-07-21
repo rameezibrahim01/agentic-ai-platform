@@ -75,6 +75,16 @@ on ToolExecuted so the timeline shows WHAT the agent found, not just that it act
 Deferred within the batch: OCR, .xls, workbook writing, per-sheet selection, full result
 storage.
 
+## Batch 064–066 (pilot-readiness polish) — EXPANDED into ticket files (see tickets/064…066)
+Owner "continue" after 061–063: the queue was empty and the direction fork (government path /
+real-model depth / pilot polish) unresolved, so the market-neutral option — harden what a
+first design partner would actually touch. Per-run cancel on the 047 switch path (064), mail
+attachments through the existing extractors (065), and a real paginated run list (066).
+Deferred within the batch: un-cancel, OAuth mailboxes, archive attachments, cursor
+pagination, free-text run search. Per-tenant connector roots turned out to already work via
+041's `tools.<tenant>.config.json` — no ticket needed, noted here so it stops looking like
+debt.
+
 ## What remains after the authoring layer — needs things only humans can provide
 - **Human-owned drill rows** (docs/drills/phase-{1..4}.md): design-partner usefulness
   sign-off, invoice reconciliation, the partner's REAL write, external red-team review,
