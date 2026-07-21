@@ -63,6 +63,7 @@ export const AGENT_TEMPLATES: readonly AgentTemplate[] = [
       tools: [
         { name: "mail.search", version: "v1", risk: "read" },
         { name: "mail.read", version: "v1", risk: "read" },
+        { name: "mail.attachment", version: "v1", risk: "read" },
         { name: "mail.send", version: "v1", risk: "write" },
       ],
       budget: { maxSteps: 10, maxCostUsd: 0.25 },

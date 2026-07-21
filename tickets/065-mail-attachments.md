@@ -15,7 +15,8 @@ on anything we cannot parse.
    mimeType, sizeBytes }` — metadata only, never content; the `MailboxClient` seam and the
    imapflow implementation both learn to enumerate parts (hermetic tests stay hermetic).
 2. New contract `mail.attachment@v1` (risk **read**, same egress as the mailbox): args
-   `{ id, index }`, output `{ filename, content, truncated, note? }`. The raw bytes are
+   `{ uid, index, mailbox? }` (uid — the connector's existing message key), output
+   `{ filename, text, truncated, note?, provenance }` (docs.read's field names). The raw bytes are
    fetched via the seam, then routed by extension exactly like `docs.read`: `.pdf` → the 061
    extractor (incl. the no-text-layer note), `.xlsx` → the 062 reader rendered as CSV-ish
    text, text types → the 057 byte cap. Everything else refuses typed ("cannot extract
