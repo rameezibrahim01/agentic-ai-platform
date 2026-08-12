@@ -86,26 +86,42 @@ function summarize(event: RunEvent): string {
   }
 }
 
-export async function runListView(store: EventStore): Promise<RunListRow[]> {
-  const summaries = await store.listRuns();
-  const rows: RunListRow[] = [];
-  for (const summary of summaries) {
-    const loaded = await store.load(summary.runId);
-    if (!loaded) continue;
-    const replayed = replay(loaded.events);
-    if (!replayed.ok) continue;
-    const { state } = replayed;
-    rows.push({
-      runId: state.runId,
-      status: state.status,
-      steps: state.stepCount,
-      tokensIn: state.tokensIn,
-      tokensOut: state.tokensOut,
-      costUsd: state.costUsd,
-      startedAt: state.startedAt,
-    });
-  }
-  return rows;
+export const RUN_PAGE_SIZE = 50;
+
+export interface RunListPage {
+  rows: RunListRow[];
+  page: number;
+  hasNext: boolean;
+  status?: RunStatus;
+}
+
+/** Ticket 066: the list is a real query — filtered, ordered, and paged AT
+ * THE STORE, rendered from summaries alone (no per-run load/replay). */
+export async function runListView(
+  store: EventStore,
+  opts: { status?: RunStatus; page?: number } = {},
+): Promise<RunListPage> {
+  const page = Math.max(1, Math.floor(opts.page ?? 1));
+  // one extra row answers "is there a next page" without a count query
+  const summaries = await store.listRuns({
+    ...(opts.status !== undefined ? { status: opts.status } : {}),
+    limit: RUN_PAGE_SIZE + 1,
+    offset: (page - 1) * RUN_PAGE_SIZE,
+  });
+  return {
+    rows: summaries.slice(0, RUN_PAGE_SIZE).map((summary) => ({
+      runId: summary.runId,
+      status: summary.status,
+      steps: summary.steps,
+      tokensIn: summary.tokensIn,
+      tokensOut: summary.tokensOut,
+      costUsd: summary.costUsd,
+      startedAt: summary.startedAt,
+    })),
+    page,
+    hasNext: summaries.length > RUN_PAGE_SIZE,
+    ...(opts.status !== undefined ? { status: opts.status } : {}),
+  };
 }
 
 export async function runTimelineView(store: EventStore, runId: string): Promise<RunTimeline> {

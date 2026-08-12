@@ -41,15 +41,22 @@ describe("pendingApprovalsView (ticket 018)", () => {
   });
 });
 
-describe("runListView (ticket 009)", () => {
-  it("rows match the reducer's state exactly", async () => {
+describe("runListView (tickets 009 + 066)", () => {
+  it("rows match the reducer's state exactly, newest-first, straight from summaries", async () => {
     const store = await seededStore();
-    const rows = await runListView(store);
-    expect(rows.map((r) => r.runId)).toEqual([
+    const { rows, page, hasNext } = await runListView(store);
+    expect(page).toBe(1);
+    expect(hasNext).toBe(false);
+    expect(rows.map((r) => r.runId).sort()).toEqual([
       "demo-awaiting-approval",
       "demo-budget-failed",
       "demo-completed",
     ]);
+    // the contract ordering: newest-first by startedAt, runId tiebreak
+    const resorted = [...rows].sort(
+      (a, b) => b.startedAt - a.startedAt || a.runId.localeCompare(b.runId),
+    );
+    expect(rows).toEqual(resorted);
 
     for (const row of rows) {
       const loaded = await store.load(row.runId);
@@ -66,6 +73,18 @@ describe("runListView (ticket 009)", () => {
         startedAt: state.startedAt,
       });
     }
+  });
+
+  it("filters at the store and pages the filtered ordering (ticket 066)", async () => {
+    const store = await seededStore();
+    const completed = await runListView(store, { status: "completed" });
+    expect(completed.rows.map((r) => r.runId)).toEqual(["demo-completed"]);
+    expect(completed.status).toBe("completed");
+
+    const pastTheEnd = await runListView(store, { page: 2 });
+    expect(pastTheEnd).toMatchObject({ rows: [], page: 2, hasNext: false });
+    // nonsense page numbers clamp to page 1, never a negative offset
+    expect((await runListView(store, { page: -3 })).page).toBe(1);
   });
 });
 

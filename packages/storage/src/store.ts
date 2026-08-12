@@ -20,10 +20,22 @@ export interface RunSummary {
   steps: number;
   costUsd: number;
   version: number;
+  /** Ticket 066: the console renders the list from summaries ALONE. */
+  startedAt: number;
+  tokensIn: number;
+  tokensOut: number;
 }
 
+/**
+ * Ticket 066 — ordering is part of the contract: `listRuns` returns runs
+ * newest-first by `startedAt` (the seq-0 event's `at`), runId ascending as
+ * the deterministic tiebreak — with or without pagination. `limit`/`offset`
+ * page that exact ordering; the conformance suite is the spec.
+ */
 export interface RunFilter {
   status?: RunStatus;
+  limit?: number;
+  offset?: number;
 }
 
 export type DeleteRunResult = { ok: true } | { ok: false; error: "not_found" };
