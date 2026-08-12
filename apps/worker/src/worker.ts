@@ -306,7 +306,11 @@ async function loadToolsFrom(configPath: string | undefined, label: string): Pro
  */
 function stubScript(): FakeBehavior[] {
   if (process.env["STUB_SCRIPT"] === "demo-write") {
-    return [
+    // TWO intent→message rounds: FakeProvider clamps to the last entry once
+    // the script is exhausted, so a second run in the same boot (drill p5-1
+    // launches one to cancel, ticket 064) must find its own intent — a
+    // clamped final message would complete it before it can pause.
+    const round: FakeBehavior[] = [
       {
         kind: "respond",
         result: fakeIntent(
@@ -317,6 +321,7 @@ function stubScript(): FakeBehavior[] {
       },
       { kind: "respond", result: fakeMessage("drill note appended", undefined, "stub-model") },
     ];
+    return [...round, ...round];
   }
   // ticket 060: the department demo's scripted model — read a spreadsheet
   // (auto-executes: read tier), then append a findings row (pauses in prod)
