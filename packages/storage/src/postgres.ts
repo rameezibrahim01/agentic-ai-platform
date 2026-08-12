@@ -111,35 +111,87 @@ export class PostgresEventStore implements EventStore {
   }
 
   async listRuns(filter?: RunFilter): Promise<RunSummary[]> {
-    const result = await this.pool.query<{ run_id: string; events: unknown[] }>(
-      `SELECT run_id, jsonb_agg(event ORDER BY seq) AS events FROM ${this.table} GROUP BY run_id ORDER BY run_id`,
+    // Ticket 066 — two-event skim first: only the seq-0 event (ordering:
+    // startedAt) and the LAST event (status) are decoded per run, so a page
+    // never loads or replays non-page logs. Works identically for encrypted
+    // codecs, which SQL alone could not order or filter.
+    const skim = await this.pool.query<{
+      run_id: string;
+      version: number;
+      first: unknown;
+      last: unknown;
+      last_seq: number;
+    }>(
+      `SELECT r.run_id, r.version, r.last_seq, e0.event AS first, e1.event AS last
+       FROM (SELECT run_id, count(*)::int AS version, max(seq)::int AS last_seq
+             FROM ${this.table} GROUP BY run_id) r
+       JOIN ${this.table} e0 ON e0.run_id = r.run_id AND e0.seq = 0
+       JOIN ${this.table} e1 ON e1.run_id = r.run_id AND e1.seq = r.last_seq`,
     );
+    const candidates: { runId: string; startedAt: number; status: RunSummary["status"] }[] = [];
+    for (const row of skim.rows) {
+      const first = this.codec.decode(row.first, { runId: row.run_id, seq: 0 });
+      const last = this.codec.decode(row.last, { runId: row.run_id, seq: row.last_seq });
+      // undecodable or malformed logs are honestly absent, never garbage
+      if (!first.ok || !last.ok || first.event.type !== "RunStarted") continue;
+      const status = statusFromLastEvent(last.event);
+      if (filter?.status !== undefined && status !== filter.status) continue;
+      candidates.push({ runId: row.run_id, startedAt: first.event.at, status });
+    }
+    // the contract ordering (ticket 066): newest-first, runId as tiebreak
+    candidates.sort(
+      (a, b) =>
+        b.startedAt - a.startedAt || (a.runId < b.runId ? -1 : a.runId > b.runId ? 1 : 0),
+    );
+    const offset = filter?.offset ?? 0;
+    const page = candidates.slice(
+      offset,
+      filter?.limit !== undefined ? offset + filter.limit : undefined,
+    );
+
+    // full load + replay for PAGE runs only — steps/cost/tokens need the log
     const summaries: RunSummary[] = [];
-    for (const row of result.rows) {
-      const events: RunEvent[] = [];
-      let corrupt = false;
-      for (const [seq, raw] of row.events.entries()) {
-        const decoded = this.codec.decode(raw, { runId: row.run_id, seq });
-        if (!decoded.ok) {
-          corrupt = true;
-          break;
-        }
-        events.push(decoded.event);
+    for (const candidate of page) {
+      let loaded: LoadResult | null;
+      try {
+        loaded = await this.load(candidate.runId);
+      } catch {
+        continue; // decodable head but corrupt tail — parity with the skim rule
       }
-      if (corrupt) continue; // parity with InMemoryEventStore: skip unreplayable logs
-      const replayed = replay(events);
+      if (loaded === null) continue;
+      const replayed = replay(loaded.events);
       if (!replayed.ok) continue;
       const { state } = replayed;
-      if (filter?.status !== undefined && state.status !== filter.status) continue;
       summaries.push({
-        runId: row.run_id,
+        runId: candidate.runId,
         status: state.status,
         steps: state.stepCount,
         costUsd: state.costUsd,
-        version: events.length,
+        version: loaded.version,
+        startedAt: state.startedAt,
+        tokensIn: state.tokensIn,
+        tokensOut: state.tokensOut,
       });
     }
     return summaries;
+  }
+}
+
+/** The run's status read off its LAST event — replay's rules, one event.
+ * Legal engine-written logs make this exact; anything else never got here
+ * (the seq-0/type checks above skip it). */
+function statusFromLastEvent(event: RunEvent): RunSummary["status"] {
+  switch (event.type) {
+    case "RunCompleted":
+      return "completed";
+    case "RunFailed":
+      return "failed";
+    case "ApprovalRequested":
+    case "ApprovalEscalated":
+    case "ApprovalDelegated":
+      return "awaiting_approval";
+    default:
+      return "running";
   }
 }
 

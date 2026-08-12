@@ -210,6 +210,52 @@ export function describeEventStoreContract(
 
       const onlyCompleted = await store.listRuns({ status: "completed" });
       expect(onlyCompleted.map((r) => r.runId)).toEqual(["run-2"]);
+      // ticket 066: summaries carry everything the run LIST renders
+      expect(run1).toMatchObject({
+        startedAt: 1_700_000_000_000,
+        tokensIn: 11 + 12,
+        tokensOut: 6 + 7,
+      });
+    });
+
+    it("listRuns orders newest-first (runId tiebreak) and paginates that exact order (ticket 066)", async () => {
+      const store = await makeStore();
+      const startRun = (runId: string, at: number): RunEvent[] => [
+        { type: "RunStarted", runId, seq: 0, at, agent: "conformance@v1", principal: "user:test", input: {} },
+      ];
+      // same startedAt for b/c — the tiebreak decides; a is newest, d oldest
+      await store.append("run-d", 0, startRun("run-d", 1_000));
+      await store.append("run-c", 0, startRun("run-c", 2_000));
+      await store.append("run-b", 0, startRun("run-b", 2_000));
+      await store.append("run-a", 0, startRun("run-a", 3_000));
+
+      const expected = ["run-a", "run-b", "run-c", "run-d"];
+      expect((await store.listRuns()).map((r) => r.runId)).toEqual(expected);
+      expect((await store.listRuns({ limit: 2 })).map((r) => r.runId)).toEqual(["run-a", "run-b"]);
+      expect((await store.listRuns({ limit: 2, offset: 2 })).map((r) => r.runId)).toEqual([
+        "run-c",
+        "run-d",
+      ]);
+      // offset past the end is an empty page, not an error
+      expect(await store.listRuns({ limit: 2, offset: 9 })).toEqual([]);
+      // filter + pagination compose: page the FILTERED ordering
+      await store.append("run-b", 1, [
+        {
+          type: "RunCompleted",
+          runId: "run-b",
+          seq: 1,
+          at: 2_001,
+          outcome: "done",
+          totalCostUsd: 0,
+          steps: 0,
+        },
+      ]);
+      expect(
+        (await store.listRuns({ status: "running", limit: 2 })).map((r) => r.runId),
+      ).toEqual(["run-a", "run-c"]);
+      expect(
+        (await store.listRuns({ status: "running", limit: 2, offset: 2 })).map((r) => r.runId),
+      ).toEqual(["run-d"]);
     });
 
     it("deleteRun removes the whole run atomically; unknown runs are typed (ticket 032)", async () => {

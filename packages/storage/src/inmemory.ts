@@ -83,8 +83,17 @@ export class InMemoryEventStore implements EventStore {
         steps: state.stepCount,
         costUsd: state.costUsd,
         version: log.length,
+        startedAt: state.startedAt,
+        tokensIn: state.tokensIn,
+        tokensOut: state.tokensOut,
       });
     }
-    return summaries.sort((a, b) => (a.runId < b.runId ? -1 : a.runId > b.runId ? 1 : 0));
+    // the contract ordering (ticket 066): newest-first, runId as tiebreak
+    summaries.sort(
+      (a, b) =>
+        b.startedAt - a.startedAt || (a.runId < b.runId ? -1 : a.runId > b.runId ? 1 : 0),
+    );
+    const offset = filter?.offset ?? 0;
+    return summaries.slice(offset, filter?.limit !== undefined ? offset + filter.limit : undefined);
   }
 }
